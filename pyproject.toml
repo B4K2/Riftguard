@@ -1,13 +1,29 @@
 [project]
 name = "riftguard"
 version = "0.1.0"
-description = "Version control and coordination layer for AI coding agents"
+description = "Coordination layer for parallel AI coding agents: shared decisions, conflict judging, trajectories"
 readme = "README.md"
 requires-python = ">=3.11"
+keywords = ["ai-agents", "coding-agents", "claude-code", "codex", "mcp", "git", "multi-agent"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Version Control :: Git",
+]
 dependencies = [
-    "mcp>=1.2",
+    "mcp>=2.3,<3",
     "typer>=0.12",
 ]
+
+[project.urls]
+Homepage = "https://github.com/B4K2/Riftguard"
+Repository = "https://github.com/B4K2/Riftguard"
+Issues = "https://github.com/B4K2/Riftguard/issues"
 
 [project.scripts]
 riftguard = "riftguard.cli:app"
@@ -15,6 +31,10 @@ riftguard = "riftguard.cli:app"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+# Ship only the package, tests and docs: not this repo's own agent configs or local settings.
+include = ["src/riftguard", "tests", "README.md", "pyproject.toml"]
 
 [dependency-groups]
 dev = ["pytest>=8"]

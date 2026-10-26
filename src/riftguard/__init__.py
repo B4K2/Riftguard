@@ -1,3 +1,5 @@
-"""Riftguard: version control and coordination for AI coding agents."""
+"""Riftguard: coordination for parallel AI coding agents."""
 
-__version__ = "0.1.0"
+from importlib.metadata import version
+
+__version__ = version("riftguard")  # single source of truth: pyproject.toml

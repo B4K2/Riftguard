@@ -5,3 +5,4 @@ __pycache__/
 .pytest_cache/
 .riftguard/local/
 AgentGit Design and Build Plan.md
+dist/
