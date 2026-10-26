@@ -1,0 +1,4 @@
+{"session_id": "sess-aaaa1111", "transcript_path": "/tmp/t.jsonl", "cwd": "__CWD__",
+ "hook_event_name": "PostToolUse", "tool_name": "Edit",
+ "tool_input": {"file_path": "README.md", "old_string": "demo", "new_string": "demo app"},
+ "tool_response": {"filePath": "README.md", "success": true}}

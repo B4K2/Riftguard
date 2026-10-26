@@ -1,0 +1,4 @@
+{"session_id": "sess-bbbb2222", "transcript_path": "/tmp/t2.jsonl", "cwd": "__CWD__",
+ "hook_event_name": "PostToolUse", "tool_name": "Bash",
+ "tool_input": {"command": "pip install pymongo"},
+ "tool_response": {"stdout": "Successfully installed pymongo", "stderr": "", "interrupted": false}}

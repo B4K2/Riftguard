@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/home/akshat/gitagent/.venv/bin/python\" -m agentgit hook post-tool-use"
+          }
+        ]
+      }
+    ]
+  }
+}
