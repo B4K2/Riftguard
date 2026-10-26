@@ -3,8 +3,8 @@ import tomllib
 import pytest
 from typer.testing import CliRunner
 
-from agentgit import store
-from agentgit.cli import app
+from riftguard import store
+from riftguard.cli import app
 
 runner = CliRunner()
 
@@ -20,11 +20,11 @@ def test_init_codex_writes_valid_toml_and_agents_md(repo):
 
     data = tomllib.loads(cfg.read_text())
     assert data["model"] == "gpt-5" and "other" in data["mcp_servers"]   # user config kept
-    assert data["mcp_servers"]["agentgit"]["args"][-1] == "mcp"
+    assert data["mcp_servers"]["riftguard"]["args"][-1] == "mcp"
     for event, sub in [("PreToolUse", "pre-tool-use"), ("PostToolUse", "post-tool-use")]:
         (group,) = data["hooks"][event]
-        assert group["hooks"][0]["command"].endswith(f"agentgit hook {sub}")
-    assert cfg.read_text().count("agentgit:start") == 1
+        assert group["hooks"][0]["command"].endswith(f"riftguard hook {sub}")
+    assert cfg.read_text().count("riftguard:start") == 1
     assert "check_decisions" in (repo / "AGENTS.md").read_text()
     assert not (repo / ".mcp.json").exists()                              # claude untouched
 

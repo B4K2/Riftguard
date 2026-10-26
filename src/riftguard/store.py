@@ -82,7 +82,7 @@ READ_ONLY_COMMANDS = {
 }
 READ_ONLY_GIT = {"status", "log", "diff", "show", "branch", "blame", "rev-parse", "ls-files",
                  "remote", "describe", "shortlog", "grep"}
-READ_ONLY_TOOLS = {"agentgit": {"status", "log", "show", "decisions", "checkpoints"}}
+READ_ONLY_TOOLS = {"riftguard": {"status", "log", "show", "decisions", "checkpoints"}}
 
 
 def _bash_is_pure(command: str) -> bool:
@@ -247,7 +247,7 @@ def agent_for_worktree(db: sqlite3.Connection, worktree: str) -> tuple[str, str 
     """(agent_id, head) of the most recently active agent in a worktree, if any.
 
     The MCP server has no session id, so this is how it learns who is calling. Two
-    concurrent sessions in one worktree are ambiguous; agentgit expects one agent per worktree.
+    concurrent sessions in one worktree are ambiguous; riftguard expects one agent per worktree.
     """
     return db.execute(
         """SELECT a.id, a.head FROM agents a LEFT JOIN steps s ON s.hash = a.head

@@ -1,7 +1,7 @@
 """Decision log: architectural decisions agents declare and check before acting.
 
 The SQLite store is the live source of truth (shared by every worktree); markdown files
-in .agentgit/decisions/ are an export for review and git history.
+in .riftguard/decisions/ are an export for review and git history.
 """
 
 import re
@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agentgit.judge import Judge, Verdict
+    from riftguard.judge import Judge, Verdict
 
 # Words that carry no meaning for topic matching ("which database to use" ~ "database").
 STOPWORDS = {
@@ -85,7 +85,7 @@ def topics_match(a: str, b: str) -> bool:
     return len(ta & tb) / min(len(ta), len(tb)) > 0.5
 
 
-# Explicit column list (never SELECT *): a store migrated by a newer agentgit must still be
+# Explicit column list (never SELECT *): a store migrated by a newer riftguard must still be
 # readable by an older process, e.g. an MCP server started before an upgrade.
 COLUMNS = "id, topic, choice, reason, agent_id, checkpoint, status, ts, conflict_with, verdict"
 
@@ -130,7 +130,7 @@ def record(
     Other agents' matching decisions are candidates. Without a judge they are only reported.
     With one, a confirmed conflict stores the new decision as pending until the developer
     resolves it."""
-    from agentgit.judge import judge_with_fallback
+    from riftguard.judge import judge_with_fallback
 
     candidates = [d for d in active(db) if topics_match(topic, d.topic) and d.agent_id != agent_id]
     # Judge outside the write transaction: it can take seconds, and hooks need the lock.

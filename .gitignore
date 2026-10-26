@@ -3,5 +3,5 @@
 __pycache__/
 *.egg-info/
 .pytest_cache/
-.agentgit/local/
+.riftguard/local/
 AgentGit Design and Build Plan.md

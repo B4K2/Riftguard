@@ -2,7 +2,7 @@ import json
 
 from typer.testing import CliRunner
 
-from agentgit.cli import app
+from riftguard.cli import app
 
 runner = CliRunner()
 
@@ -21,8 +21,8 @@ def test_init_is_idempotent_and_preserves_settings(repo):
     s = json.loads(settings.read_text())
     assert s["model"] == "opus" and "Stop" in s["hooks"]
     assert len(s["hooks"]["PostToolUse"]) == 1 and len(s["hooks"]["PreToolUse"]) == 1
-    assert (repo / ".agentgit" / "config.toml").exists()
-    assert ".agentgit/local/" in (repo / ".gitignore").read_text()
+    assert (repo / ".riftguard" / "config.toml").exists()
+    assert ".riftguard/local/" in (repo / ".gitignore").read_text()
 
 
 def test_log_status_show(repo, replay):

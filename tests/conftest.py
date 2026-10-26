@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from agentgit import hooks
+from riftguard import hooks
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -17,8 +17,8 @@ def git(*args: str, cwd: Path) -> None:
 @pytest.fixture(autouse=True)
 def heuristic_judge(monkeypatch):
     """Never shell out to a real claude/codex from tests."""
-    monkeypatch.setenv("AGENTGIT_JUDGE_BACKEND", "heuristic")
-    monkeypatch.delenv("AGENTGIT_JUDGE", raising=False)
+    monkeypatch.setenv("RIFTGUARD_JUDGE_BACKEND", "heuristic")
+    monkeypatch.delenv("RIFTGUARD_JUDGE", raising=False)
 
 
 @pytest.fixture

@@ -3,15 +3,15 @@ import json
 
 import pytest
 
-from agentgit import hooks, store
-from agentgit.paths import store_path
+from riftguard import hooks, store
+from riftguard.paths import store_path
 
 
 @pytest.mark.parametrize("command,effect", [
     ("ls -la", "pure"),
     ("git status --short && git log --oneline -3", "pure"),
     ("grep -rn foo src | head -5", "pure"),
-    ("cd /repo && uv run agentgit status", "pure"),
+    ("cd /repo && uv run riftguard status", "pure"),
     ("cat a.txt 2>&1 >/dev/null", "pure"),
     ("pip install pymongo", "irreversible"),
     ("git commit -m x", "irreversible"),
@@ -54,4 +54,4 @@ def test_auto_checkpoint_before_irreversible_only(repo, replay):
 
 def test_pre_hook_never_raises(capsys):
     hooks.pre_tool_use(io.StringIO("{"))
-    assert "agentgit:" in capsys.readouterr().err
+    assert "riftguard:" in capsys.readouterr().err

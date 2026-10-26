@@ -9,13 +9,13 @@ from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
 
-from agentgit import decisions, store
-from agentgit.config import judge_from_config
-from agentgit.judge import Judge
-from agentgit.paths import agentgit_dir, store_path, worktree_root
+from riftguard import decisions, store
+from riftguard.config import judge_from_config
+from riftguard.judge import Judge
+from riftguard.paths import riftguard_dir, store_path, worktree_root
 
 INSTRUCTIONS = """\
-AgentGit coordinates parallel agents on this repository.
+Riftguard coordinates parallel agents on this repository.
 Before making an architectural choice (datastore, framework, API style, auth, major
 dependency, project layout), call check_decisions with the topic. If another agent already
 decided it, follow that decision instead of introducing a competing one. After making a
@@ -34,15 +34,15 @@ class Context:
         self._judge = judge
         self.worktree = str(worktree_root(cwd))
         self.store = store_path(cwd)
-        self.decisions_dir = agentgit_dir(cwd) / "decisions"
+        self.decisions_dir = riftguard_dir(cwd) / "decisions"
 
     def connect(self):
         if not self.store.exists():
-            raise RuntimeError("agentgit is not initialised in this repo; run `agentgit init`")
+            raise RuntimeError("riftguard is not initialised in this repo; run `riftguard init`")
         return store.connect(self.store)
 
     def judge(self) -> Judge:
-        # Read config per call so edits to .agentgit/config.toml apply without a restart.
+        # Read config per call so edits to .riftguard/config.toml apply without a restart.
         return self._judge or judge_from_config(self.cwd)
 
     def agent(self, db) -> tuple[str, str | None]:
@@ -118,7 +118,7 @@ def record_decision(ctx: Context, topic: str, choice: str, reason: str) -> str:
             + f" (severity {v.severity}, confidence {v.confidence:.2f}, judge: {v.backend}).",
             f"Judge: {v.recommendation}",
             f"Do not build on {d.choice}. Follow the existing decision, or wait for the developer "
-            f"to run `agentgit resolve {d.id} --keep <id>`.",
+            f"to run `riftguard resolve {d.id} --keep <id>`.",
         ]
         return "\n".join(lines)
     lines = [f"Recorded {d.summary()}"]
@@ -145,7 +145,7 @@ def checkpoint(ctx: Context, label: str, note: str | None = None) -> str:
 
 def build_server(cwd: str | Path) -> MCPServer:
     ctx = Context(cwd)
-    server = MCPServer("agentgit", instructions=INSTRUCTIONS)
+    server = MCPServer("riftguard", instructions=INSTRUCTIONS)
 
     @server.tool(name="check_decisions")
     def _check(topic: str | None = None) -> str:

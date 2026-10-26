@@ -5,9 +5,9 @@ import os
 import sys
 from typing import IO
 
-from agentgit import store
-from agentgit.judge import JUDGE_ENV  # set in the judge's own sessions, which we skip
-from agentgit.paths import store_path, worktree_root
+from riftguard import store
+from riftguard.judge import JUDGE_ENV  # set in the judge's own sessions, which we skip
+from riftguard.paths import store_path, worktree_root
 
 
 def post_tool_use(stdin: IO[str] = sys.stdin) -> None:
@@ -17,7 +17,7 @@ def post_tool_use(stdin: IO[str] = sys.stdin) -> None:
         ev = json.load(stdin)
         path = store_path(ev["cwd"])
         if not path.exists():
-            return  # repo not initialised with agentgit; stay silent
+            return  # repo not initialised with riftguard; stay silent
         db = store.connect(path)
         try:
             store.record_step(
@@ -31,7 +31,7 @@ def post_tool_use(stdin: IO[str] = sys.stdin) -> None:
         finally:
             db.close()
     except Exception as e:
-        print(f"agentgit: {e}", file=sys.stderr)
+        print(f"riftguard: {e}", file=sys.stderr)
 
 
 def pre_tool_use(stdin: IO[str] = sys.stdin) -> None:
@@ -49,4 +49,4 @@ def pre_tool_use(stdin: IO[str] = sys.stdin) -> None:
         finally:
             db.close()
     except Exception as e:
-        print(f"agentgit: {e}", file=sys.stderr)
+        print(f"riftguard: {e}", file=sys.stderr)

@@ -2,10 +2,10 @@ import json
 
 from typer.testing import CliRunner
 
-from agentgit import decisions, store
-from agentgit.cli import app
-from agentgit.mcp_server import Context, check_decisions, checkpoint, record_decision
-from agentgit.paths import store_path
+from riftguard import decisions, store
+from riftguard.cli import app
+from riftguard.mcp_server import Context, check_decisions, checkpoint, record_decision
+from riftguard.paths import store_path
 
 runner = CliRunner()
 
@@ -62,7 +62,7 @@ def test_decision_links_checkpoint_and_exports_markdown(repo, replay):
     (d,) = decisions.active(db)
     (step,) = db.execute("SELECT step_hash FROM checkpoints WHERE name=?", (d.checkpoint,)).fetchone()
     assert step == db.execute("SELECT head FROM agents").fetchone()[0]
-    files = list((repo / ".agentgit" / "decisions").glob("*.md"))
+    files = list((repo / ".riftguard" / "decisions").glob("*.md"))
     assert [f.name for f in files] == ["0001-api-style.md"]
     assert "choice: REST" in files[0].read_text()
 
@@ -92,9 +92,9 @@ def test_init_registers_mcp_and_claude_md_idempotently(repo):
     assert "MCP server already registered" in r.output
     assert "CLAUDE.md already up to date" in r.output
     md = (repo / "CLAUDE.md").read_text()
-    assert md.startswith("# My project") and md.count("agentgit:start") == 1
+    assert md.startswith("# My project") and md.count("riftguard:start") == 1
     mcp = json.loads((repo / ".mcp.json").read_text())
-    assert mcp["mcpServers"]["agentgit"]["args"][-1] == "mcp"
+    assert mcp["mcpServers"]["riftguard"]["args"][-1] == "mcp"
 
 
 def test_cli_decide_conflicts_with_agent_decision(repo, replay):
@@ -112,7 +112,7 @@ def test_cli_decide_conflicts_with_agent_decision(repo, replay):
 
 
 def test_check_output_stays_compact(repo, replay):
-    from agentgit.mcp_server import OTHERS_LIMIT, get_decision
+    from riftguard.mcp_server import OTHERS_LIMIT, get_decision
     runner.invoke(app, ["init"])
     replay("read", repo)
     ctx = Context(repo)
@@ -129,13 +129,13 @@ def test_check_output_stays_compact(repo, replay):
 
 def test_init_writes_portable_commands_when_installed_as_tool(repo, monkeypatch):
     monkeypatch.delenv("VIRTUAL_ENV", raising=False)
-    monkeypatch.setattr("agentgit.cli.shutil.which", lambda name: "/usr/local/bin/agentgit")
+    monkeypatch.setattr("riftguard.cli.shutil.which", lambda name: "/usr/local/bin/riftguard")
     runner.invoke(app, ["init"])
     mcp = json.loads((repo / ".mcp.json").read_text())
-    assert mcp["mcpServers"]["agentgit"] == {"command": "agentgit", "args": ["mcp"]}
+    assert mcp["mcpServers"]["riftguard"] == {"command": "riftguard", "args": ["mcp"]}
     settings = json.loads((repo / ".claude" / "settings.json").read_text())
     cmd = settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
-    assert cmd == "agentgit hook post-tool-use"
+    assert cmd == "riftguard hook post-tool-use"
 
 
 def test_reads_survive_columns_added_by_newer_versions(repo, replay):

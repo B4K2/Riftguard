@@ -6,13 +6,13 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from agentgit import decisions, store
-from agentgit.cli import app
-from agentgit.decisions import Decision
-from agentgit.judge import (ClaudeJudge, CodexJudge, HeuristicJudge, Verdict, get_judge,
+from riftguard import decisions, store
+from riftguard.cli import app
+from riftguard.decisions import Decision
+from riftguard.judge import (ClaudeJudge, CodexJudge, HeuristicJudge, Verdict, get_judge,
                             judge_with_fallback)
-from agentgit.mcp_server import Context, check_decisions, record_decision
-from agentgit.paths import store_path
+from riftguard.mcp_server import Context, check_decisions, record_decision
+from riftguard.paths import store_path
 
 runner = CliRunner()
 POSTGRES = Decision(1, "database", "Postgres", "transactions", "agent-a", None, "active", 0.0)
@@ -105,7 +105,7 @@ def _fake_cli(bin_dir: Path, name: str, script: str) -> None:
 ARGV_LOG = """
 import json, os, sys
 prompt = sys.stdin.read()
-log = {"argv": sys.argv[1:], "cwd": os.getcwd(), "judge_env": os.environ.get("AGENTGIT_JUDGE"),
+log = {"argv": sys.argv[1:], "cwd": os.getcwd(), "judge_env": os.environ.get("RIFTGUARD_JUDGE"),
        "has_prompt": "Postgres" in prompt and "MongoDB" in prompt}
 open(os.environ["FAKE_LOG"], "w").write(json.dumps(log))
 """
@@ -124,7 +124,7 @@ print(json.dumps({{"type": "result", "result": "", "structured_output": {VERDICT
     assert argv[0] == "-p" and "--json-schema" in argv and "--strict-mcp-config" in argv
     assert argv[argv.index("--tools") + 1] == "" and "user" in argv
     assert log["judge_env"] == "1" and log["has_prompt"]
-    assert "agentgit-judge-" in log["cwd"]            # isolated from the repo
+    assert "riftguard-judge-" in log["cwd"]            # isolated from the repo
 
 
 def test_codex_backend_invocation(tmp_path, monkeypatch):
@@ -157,7 +157,7 @@ def test_auto_backend_picks_installed_cli(tmp_path, monkeypatch):
 
 def test_hooks_ignore_judge_sessions(repo, replay, monkeypatch):
     store.init_store(store_path(repo))
-    monkeypatch.setenv("AGENTGIT_JUDGE", "1")
+    monkeypatch.setenv("RIFTGUARD_JUDGE", "1")
     replay("read", repo)
     db = store.connect(store_path(repo))
     assert db.execute("SELECT COUNT(*) FROM steps").fetchone()[0] == 0

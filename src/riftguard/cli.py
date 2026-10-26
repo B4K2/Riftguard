@@ -1,4 +1,4 @@
-"""agentgit command-line interface."""
+"""riftguard command-line interface."""
 
 import json
 import os
@@ -10,15 +10,15 @@ from pathlib import Path
 
 import typer
 
-from agentgit import decisions, hooks, store
-from agentgit.paths import agentgit_dir, repo_root, store_path, worktree_root
+from riftguard import decisions, hooks, store
+from riftguard.paths import riftguard_dir, repo_root, store_path, worktree_root
 
 app = typer.Typer(help="Version control and coordination for AI coding agents.", no_args_is_help=True)
 hook_app = typer.Typer(help="Hook entry points (called by Claude Code, not by you).")
 app.add_typer(hook_app, name="hook")
 
 CONFIG_TOML = """\
-# AgentGit settings (committed)
+# Riftguard settings (committed)
 version = 1
 
 [judge]
@@ -29,12 +29,12 @@ model = ""         # optional, e.g. "haiku" for claude
 """
 
 
-CLAUDE_MD_START = "<!-- agentgit:start -->"
-CLAUDE_MD_END = "<!-- agentgit:end -->"
+CLAUDE_MD_START = "<!-- riftguard:start -->"
+CLAUDE_MD_END = "<!-- riftguard:end -->"
 CLAUDE_MD_BLOCK = f"""{CLAUDE_MD_START}
-## AgentGit (multi-agent coordination)
+## Riftguard (multi-agent coordination)
 
-This repo uses AgentGit. Other agents may be working in parallel worktrees.
+This repo uses Riftguard. Other agents may be working in parallel worktrees.
 
 - Before any architectural choice (datastore, framework, API style, auth, major dependency,
   project layout), call the `check_decisions` MCP tool with the topic. If a decision exists,
@@ -42,15 +42,15 @@ This repo uses AgentGit. Other agents may be working in parallel worktrees.
 - After making such a choice, call `record_decision(topic, choice, reason)`.
 - If `record_decision` warns about a conflict, stop and align or ask the developer.
 - Call `checkpoint(label)` before risky or exploratory work.
-- Use these MCP tools for decisions; don't read files under `.agentgit/` directly.
+- Use these MCP tools for decisions; don't read files under `.riftguard/` directly.
 {CLAUDE_MD_END}
 """
 
 
 def _portable() -> bool:
-    """True when agentgit is installed as a tool (uv tool / pipx) and on PATH, so configs can
-    say plain `agentgit`. Inside a dev venv (`uv run`), pin the interpreter path instead."""
-    return shutil.which("agentgit") is not None and "VIRTUAL_ENV" not in os.environ
+    """True when riftguard is installed as a tool (uv tool / pipx) and on PATH, so configs can
+    say plain `riftguard`. Inside a dev venv (`uv run`), pin the interpreter path instead."""
+    return shutil.which("riftguard") is not None and "VIRTUAL_ENV" not in os.environ
 
 
 HOOK_EVENTS = {"PreToolUse": "pre-tool-use", "PostToolUse": "post-tool-use"}
@@ -58,26 +58,26 @@ HOOK_EVENTS = {"PreToolUse": "pre-tool-use", "PostToolUse": "post-tool-use"}
 
 def _hook_command(sub: str) -> str:
     if _portable():
-        return f"agentgit hook {sub}"
-    return f'"{sys.executable}" -m agentgit hook {sub}'
+        return f"riftguard hook {sub}"
+    return f'"{sys.executable}" -m riftguard hook {sub}'
 
 
 def _install_mcp(root: Path) -> bool:
-    """Register the agentgit MCP server in .mcp.json. Returns True if it changed."""
+    """Register the riftguard MCP server in .mcp.json. Returns True if it changed."""
     path = root / ".mcp.json"
     config = json.loads(path.read_text()) if path.exists() else {}
-    entry = ({"command": "agentgit", "args": ["mcp"]} if _portable()
-             else {"command": sys.executable, "args": ["-m", "agentgit", "mcp"]})
+    entry = ({"command": "riftguard", "args": ["mcp"]} if _portable()
+             else {"command": sys.executable, "args": ["-m", "riftguard", "mcp"]})
     servers = config.setdefault("mcpServers", {})
-    if servers.get("agentgit") == entry:
+    if servers.get("riftguard") == entry:
         return False
-    servers["agentgit"] = entry
+    servers["riftguard"] = entry
     path.write_text(json.dumps(config, indent=2) + "\n")
     return True
 
 
 def _install_instructions(root: Path, filename: str) -> bool:
-    """Add (or refresh) the agentgit section of CLAUDE.md / AGENTS.md. True if it changed."""
+    """Add (or refresh) the riftguard section of CLAUDE.md / AGENTS.md. True if it changed."""
     path = root / filename
     text = path.read_text() if path.exists() else ""
     if CLAUDE_MD_START in text:
@@ -102,7 +102,7 @@ def _install_hooks(root: Path) -> bool:
         groups = settings.setdefault("hooks", {}).setdefault(event, [])
         command = _hook_command(sub)
         ours = [h for group in groups for h in group.get("hooks", [])
-                if f"agentgit hook {sub}" in h.get("command", "")]
+                if f"riftguard hook {sub}" in h.get("command", "")]
         if ours:
             if ours[0]["command"] != command:
                 ours[0]["command"] = command  # interpreter moved; refresh it
@@ -116,16 +116,16 @@ def _install_hooks(root: Path) -> bool:
     return changed
 
 
-CODEX_START = "# agentgit:start (managed by `agentgit init`)"
-CODEX_END = "# agentgit:end"
+CODEX_START = "# riftguard:start (managed by `riftguard init`)"
+CODEX_END = "# riftguard:end"
 
 
 def _codex_block() -> str:
     if _portable():
-        mcp_cmd, mcp_args = "agentgit", ["mcp"]
+        mcp_cmd, mcp_args = "riftguard", ["mcp"]
     else:
-        mcp_cmd, mcp_args = sys.executable, ["-m", "agentgit", "mcp"]
-    lines = [CODEX_START, "[mcp_servers.agentgit]", f"command = {json.dumps(mcp_cmd)}",
+        mcp_cmd, mcp_args = sys.executable, ["-m", "riftguard", "mcp"]
+    lines = [CODEX_START, "[mcp_servers.riftguard]", f"command = {json.dumps(mcp_cmd)}",
              f"args = {json.dumps(mcp_args)}", ""]
     for event, sub in HOOK_EVENTS.items():
         lines += [f"[[hooks.{event}]]", 'matcher = "*"', f"[[hooks.{event}.hooks]]",
@@ -166,8 +166,8 @@ def _harnesses(choice: str, root: Path) -> list[str]:
 def _ensure_gitignore(root: Path) -> None:
     gi = root / ".gitignore"
     lines = gi.read_text().splitlines() if gi.exists() else []
-    if ".agentgit/local/" not in lines:
-        lines.append(".agentgit/local/")
+    if ".riftguard/local/" not in lines:
+        lines.append(".riftguard/local/")
         gi.write_text("\n".join(lines) + "\n")
 
 
@@ -178,7 +178,7 @@ def _open() -> sqlite3.Connection:
         typer.echo("error: not inside a git repository", err=True)
         raise typer.Exit(1)
     if not path.exists():
-        typer.echo("error: agentgit not initialised here; run `agentgit init`", err=True)
+        typer.echo("error: riftguard not initialised here; run `riftguard init`", err=True)
         raise typer.Exit(1)
     return store.connect(path)
 
@@ -192,13 +192,13 @@ def init(
     harness: str = typer.Option("auto", "--harness",
                                 help="claude | codex | both | auto (whichever is installed)."),
 ) -> None:
-    """Create .agentgit/ in the main repo and wire up Claude Code and/or Codex."""
+    """Create .riftguard/ in the main repo and wire up Claude Code and/or Codex."""
     try:
         root = repo_root()
     except Exception:
         typer.echo("error: not inside a git repository", err=True)
         raise typer.Exit(1)
-    d = agentgit_dir()
+    d = riftguard_dir()
     (d / "decisions").mkdir(parents=True, exist_ok=True)
     (d / "decisions" / ".gitkeep").touch()
     if not (d / "config.toml").exists():
@@ -212,12 +212,12 @@ def init(
                    else "hooks already installed")
         typer.echo("registered MCP server in .mcp.json" if _install_mcp(root)
                    else "MCP server already registered")
-        typer.echo("added agentgit section to CLAUDE.md" if _install_instructions(root, "CLAUDE.md")
+        typer.echo("added riftguard section to CLAUDE.md" if _install_instructions(root, "CLAUDE.md")
                    else "CLAUDE.md already up to date")
     if "codex" in targets:
         typer.echo("wrote MCP server and hooks to .codex/config.toml" if _install_codex(root)
                    else ".codex/config.toml already up to date")
-        typer.echo("added agentgit section to AGENTS.md" if _install_instructions(root, "AGENTS.md")
+        typer.echo("added riftguard section to AGENTS.md" if _install_instructions(root, "AGENTS.md")
                    else "AGENTS.md already up to date")
         typer.echo("codex: trust this project and approve the hooks (/hooks) on first run")
 
@@ -309,7 +309,7 @@ def decide(
     final, so this is never held for review; conflicts are only reported."""
     db = _open()
     result = decisions.record(db, topic, choice, reason, agent)
-    decisions.export(db, agentgit_dir() / "decisions")
+    decisions.export(db, riftguard_dir() / "decisions")
     typer.echo(f"recorded {result.decision.summary()}")
     for d in result.superseded:
         typer.echo(f"superseded {d.summary()}")
@@ -335,7 +335,7 @@ def conflicts() -> None:
                        f"confidence {v.get('confidence', 0):.2f}")
             typer.echo(f"  {v.get('recommendation')}")
             typer.echo(f"  why: {v.get('rationale')}")
-        typer.echo(f"  resolve: agentgit resolve {d.id} --keep {d.conflict_with}   (or --keep {d.id})")
+        typer.echo(f"  resolve: riftguard resolve {d.id} --keep {d.conflict_with}   (or --keep {d.id})")
 
 
 @app.command()
@@ -350,7 +350,7 @@ def resolve(
     except ValueError as e:
         typer.echo(f"error: {e}", err=True)
         raise typer.Exit(1)
-    decisions.export(db, agentgit_dir() / "decisions")
+    decisions.export(db, riftguard_dir() / "decisions")
     typer.echo(f"kept {kept.short()}; {dropped.short()} is now {dropped.status}")
 
 
@@ -361,7 +361,7 @@ def supersede_cmd(decision_id: int) -> None:
     if not decisions.supersede(db, decision_id):
         typer.echo(f"error: no active decision #{decision_id}", err=True)
         raise typer.Exit(1)
-    decisions.export(db, agentgit_dir() / "decisions")
+    decisions.export(db, riftguard_dir() / "decisions")
     typer.echo(f"superseded #{decision_id}")
 
 
@@ -388,7 +388,7 @@ def checkpoint_cmd(
 @app.command()
 def mcp() -> None:
     """Run the MCP server over stdio (launched by Claude Code)."""
-    from agentgit.mcp_server import main
+    from riftguard.mcp_server import main
     main()
 
 

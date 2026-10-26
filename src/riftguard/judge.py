@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol
 
-from agentgit.decisions import Decision
+from riftguard.decisions import Decision
 
 VERDICT_SCHEMA = {
     "type": "object",
@@ -47,8 +47,8 @@ Reply only with JSON matching the schema. with_id is the id of the conflicting e
 decision, or null. recommendation says which decision to keep and why, in one sentence.
 confidence is between 0 and 1."""
 
-# Set in the judge's environment so agentgit hooks ignore the judge's own session.
-JUDGE_ENV = "AGENTGIT_JUDGE"
+# Set in the judge's environment so riftguard hooks ignore the judge's own session.
+JUDGE_ENV = "RIFTGUARD_JUDGE"
 
 
 @dataclass
@@ -107,7 +107,7 @@ class CLIJudge:
             existing="\n".join(d.summary() for d in candidates),
             topic=topic, choice=choice, reason=reason or "none given")
         # Run from an empty temp dir so no CLAUDE.md / AGENTS.md or project config is loaded.
-        with tempfile.TemporaryDirectory(prefix="agentgit-judge-") as tmp:
+        with tempfile.TemporaryDirectory(prefix="riftguard-judge-") as tmp:
             workdir = Path(tmp)
             (workdir / "schema.json").write_text(json.dumps(VERDICT_SCHEMA))
             proc = subprocess.run(

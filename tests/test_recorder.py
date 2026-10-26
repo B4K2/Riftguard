@@ -1,8 +1,8 @@
 import json
 import threading
 
-from agentgit import store
-from agentgit.paths import store_path
+from riftguard import store
+from riftguard.paths import store_path
 
 
 def _init(repo):
@@ -56,9 +56,9 @@ def test_hook_is_silent_when_not_initialised(repo, replay, capsys):
 
 def test_hook_never_raises_on_bad_input(capsys):
     import io
-    from agentgit import hooks
+    from riftguard import hooks
     hooks.post_tool_use(io.StringIO("not json"))
-    assert "agentgit:" in capsys.readouterr().err
+    assert "riftguard:" in capsys.readouterr().err
 
 
 def test_concurrent_writers_keep_chain_linear(repo):

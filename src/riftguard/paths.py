@@ -13,12 +13,12 @@ def repo_root(cwd: str | Path = ".") -> Path:
     return Path(common).parent  # .../repo/.git -> .../repo
 
 
-def agentgit_dir(cwd: str | Path = ".") -> Path:
-    return repo_root(cwd) / ".agentgit"
+def riftguard_dir(cwd: str | Path = ".") -> Path:
+    return repo_root(cwd) / ".riftguard"
 
 
 def store_path(cwd: str | Path = ".") -> Path:
-    return agentgit_dir(cwd) / "local" / "store.db"
+    return riftguard_dir(cwd) / "local" / "store.db"
 
 
 def worktree_root(cwd: str | Path = ".") -> Path:
