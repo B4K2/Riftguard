@@ -5,6 +5,7 @@ Kept behind this module so the storage layer can be swapped (or ported to Rust) 
 
 import hashlib
 import json
+import re
 import sqlite3
 import time
 import zlib
@@ -62,6 +63,47 @@ EFFECTS = {
     "Edit": "reversible", "MultiEdit": "reversible", "Write": "reversible",
     "NotebookEdit": "reversible",
 }
+
+
+# Shell commands that only read. A Bash call is pure when every command in it is one of
+# these and nothing is redirected to a file; anything else is irreversible.
+READ_ONLY_COMMANDS = {
+    "ls", "cat", "head", "tail", "less", "wc", "grep", "rg", "find", "fd", "tree", "pwd",
+    "echo", "printf", "which", "file", "stat", "du", "df", "diff", "cut", "sort", "uniq",
+    "awk", "jq", "date", "env", "whoami", "uname", "basename", "dirname", "realpath", "true",
+}
+READ_ONLY_GIT = {"status", "log", "diff", "show", "branch", "blame", "rev-parse", "ls-files",
+                 "remote", "describe", "shortlog", "grep"}
+READ_ONLY_TOOLS = {"agentgit": {"status", "log", "show", "decisions", "checkpoints"}}
+
+
+def _bash_is_pure(command: str) -> bool:
+    if re.search(r"(?<![0-9&])>|\$\(|`", command.replace("2>&1", "").replace(">/dev/null", "")):
+        return False  # writes to a file, or runs a substitution we can't see into
+    for segment in re.split(r"&&|\|\||;|\|", command):
+        words = segment.split()
+        while words and "=" in words[0]:  # VAR=value prefixes
+            words = words[1:]
+        if words[:2] == ["uv", "run"]:
+            words = words[2:]
+        if not words:
+            continue
+        cmd, sub = words[0], words[1] if len(words) > 1 else ""
+        if cmd == "cd" or cmd in READ_ONLY_COMMANDS:
+            continue
+        if cmd == "git" and sub in READ_ONLY_GIT:
+            continue
+        if cmd in READ_ONLY_TOOLS and sub in READ_ONLY_TOOLS[cmd]:
+            continue
+        return False
+    return True
+
+
+def classify(tool: str, tool_input: Any) -> str:
+    """Side-effect class of one tool call: pure, reversible or irreversible."""
+    if tool == "Bash" and isinstance(tool_input, dict):
+        return "pure" if _bash_is_pure(str(tool_input.get("command", ""))) else "irreversible"
+    return EFFECTS.get(tool, "irreversible")
 
 
 @dataclass
@@ -146,7 +188,7 @@ def record_step(
         step = sha256(canonical([parent, agent_id, tool, inp, out, ts]))
         db.execute(
             "INSERT INTO steps VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (step, agent_id, parent, tool, inp, out, EFFECTS.get(tool, "irreversible"), ts),
+            (step, agent_id, parent, tool, inp, out, classify(tool, tool_input), ts),
         )
         db.execute("UPDATE agents SET head=? WHERE id=?", (step, agent_id))
         db.execute("COMMIT")
@@ -204,3 +246,22 @@ def create_checkpoint(
         (name, step_hash, agent_id, note, time.time()),
     )
     return name
+
+
+def auto_checkpoint(
+    db: sqlite3.Connection, session_id: str, tool: str, tool_input: Any
+) -> str | None:
+    """Before an irreversible tool call, name the agent's current step so rewind has a safe
+    point just before it. Returns the checkpoint name, or None if none was needed."""
+    if classify(tool, tool_input) != "irreversible":
+        return None
+    row = db.execute("SELECT id, head FROM agents WHERE session_id=?", (session_id,)).fetchone()
+    if row is None or row[1] is None:
+        return None  # nothing recorded yet, so nothing to rewind to
+    agent_id, head = row
+    if db.execute("SELECT 1 FROM checkpoints WHERE step_hash=? AND name LIKE 'auto-%'",
+                  (head,)).fetchone():
+        return None  # already have one here
+    detail = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+    note = f"before {tool}: {detail}"[:200]
+    return create_checkpoint(db, f"auto-{head[:10]}", agent_id, head, note)

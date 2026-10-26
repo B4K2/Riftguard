@@ -50,10 +50,13 @@ def _portable() -> bool:
     return shutil.which("agentgit") is not None and "VIRTUAL_ENV" not in os.environ
 
 
-def _hook_command() -> str:
+HOOK_EVENTS = {"PreToolUse": "pre-tool-use", "PostToolUse": "post-tool-use"}
+
+
+def _hook_command(sub: str) -> str:
     if _portable():
-        return "agentgit hook post-tool-use"
-    return f'"{sys.executable}" -m agentgit hook post-tool-use'
+        return f"agentgit hook {sub}"
+    return f'"{sys.executable}" -m agentgit hook {sub}'
 
 
 def _install_mcp(root: Path) -> bool:
@@ -87,23 +90,27 @@ def _install_claude_md(root: Path) -> bool:
     return True
 
 
-def _install_hook(root: Path) -> bool:
-    """Merge our PostToolUse hook into .claude/settings.json. Returns True if it changed."""
+def _install_hooks(root: Path) -> bool:
+    """Merge our hooks into .claude/settings.json. Returns True if anything changed."""
     settings_path = root / ".claude" / "settings.json"
     settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
-    post = settings.setdefault("hooks", {}).setdefault("PostToolUse", [])
-    command = _hook_command()
-    ours = [h for group in post for h in group.get("hooks", [])
-            if "agentgit hook post-tool-use" in h.get("command", "")]
-    if ours:
-        if ours[0]["command"] == command:
-            return False
-        ours[0]["command"] = command  # interpreter moved; refresh it
-    else:
-        post.append({"matcher": "*", "hooks": [{"type": "command", "command": command}]})
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
-    return True
+    changed = False
+    for event, sub in HOOK_EVENTS.items():
+        groups = settings.setdefault("hooks", {}).setdefault(event, [])
+        command = _hook_command(sub)
+        ours = [h for group in groups for h in group.get("hooks", [])
+                if f"agentgit hook {sub}" in h.get("command", "")]
+        if ours:
+            if ours[0]["command"] != command:
+                ours[0]["command"] = command  # interpreter moved; refresh it
+                changed = True
+        else:
+            groups.append({"matcher": "*", "hooks": [{"type": "command", "command": command}]})
+            changed = True
+    if changed:
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+    return changed
 
 
 def _ensure_gitignore(root: Path) -> None:
@@ -146,8 +153,8 @@ def init() -> None:
     store.init_store(store_path())
     _ensure_gitignore(root)
     typer.echo(f"initialised {d}")
-    typer.echo("installed PostToolUse hook in .claude/settings.json" if _install_hook(root)
-               else "hook already installed")
+    typer.echo("installed hooks in .claude/settings.json" if _install_hooks(root)
+               else "hooks already installed")
     typer.echo("registered MCP server in .mcp.json" if _install_mcp(root)
                else "MCP server already registered")
     typer.echo("added agentgit section to CLAUDE.md" if _install_claude_md(root)
@@ -284,6 +291,28 @@ def mcp() -> None:
     """Run the MCP server over stdio (launched by Claude Code)."""
     from agentgit.mcp_server import main
     main()
+
+
+@app.command("checkpoints")
+def list_checkpoints(
+    agent: str = typer.Option(None, "--agent", "-a"),
+    auto: bool = typer.Option(True, "--auto/--no-auto", help="Include automatic checkpoints."),
+) -> None:
+    """List checkpoints, newest first."""
+    db = _open()
+    rows = db.execute(
+        "SELECT name, step_hash, agent_id, note, ts FROM checkpoints"
+        " WHERE (? IS NULL OR agent_id = ?) ORDER BY ts DESC", (agent, agent)).fetchall()
+    rows = [r for r in rows if auto or not r[0].startswith("auto-")]
+    if not rows:
+        typer.echo("no checkpoints")
+    for name, step, agent_id, note, ts in rows:
+        typer.echo(f"{_fmt_ts(ts)}  {name:<28} {step[:10]}  {agent_id:<24} {note or ''}")
+
+
+@hook_app.command("pre-tool-use")
+def pre_tool_use() -> None:
+    hooks.pre_tool_use()
 
 
 @hook_app.command("post-tool-use")

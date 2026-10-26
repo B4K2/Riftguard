@@ -45,16 +45,36 @@ Claude Code in the repo to pick them up.
 | `agentgit decide <topic> <choice> -r <reason>` | Record a decision by hand |
 | `agentgit supersede <id>` | Retire a decision |
 | `agentgit checkpoint <label>` | Name the current step of an agent |
+| `agentgit checkpoints [--no-auto]` | List checkpoints, newest first |
+
+Every tool call is tagged `pure`, `reversible` (file edits git can undo) or `irreversible`.
+Read-only shell commands (`ls`, `grep`, `git status`, ...) count as pure. Before any irreversible
+call, a PreToolUse hook creates an `auto-*` checkpoint so rewind always has a safe point just
+before the step that can't be undone.
 
 ## Status
 
 - [x] Phase 1: recorder, shared store, CLI
 - [x] Phase 2: decision layer and MCP server
+- [x] Automatic checkpoints before irreversible tool calls
 - [ ] Phase 3: judge for semantic conflict detection and resolution
 - [ ] Phase 4: rewind and summary-seeded forks
+- [ ] Phase 4: branch-and-compare (`fork --n 3`: parallel agents try different approaches from
+      one checkpoint; tests or the judge pick a winner)
+- [ ] Evaluation: measured steps and tokens saved by forks sharing a prefix, from the store
 
 Current limitations: one agent per worktree; topic matching is a keyword/synonym heuristic until
-the judge lands; all Bash calls are tagged irreversible.
+the judge lands; Bash classification is an allowlist, so unknown commands count as irreversible.
+
+## Related work
+
+**AgentGit** (Li et al., 2025, [arXiv:2511.00628](https://arxiv.org/abs/2511.00628)) adds
+Git-like commit, revert and branching to the state of a single LangGraph multi-agent workflow,
+mainly so pipelines can roll back or explore prompt variants without recomputing shared steps.
+This project instead coordinates *independent* coding agents (unmodified Claude Code sessions,
+via hooks and MCP) working in parallel git worktrees: shared architectural decisions, conflict
+warnings between agents, and explicit side-effect classes. Automatic checkpoints and
+branch-and-compare are adapted from that paper.
 
 ## Development
 

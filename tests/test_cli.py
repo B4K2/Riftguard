@@ -14,13 +14,13 @@ def test_init_is_idempotent_and_preserves_settings(repo):
 
     r = runner.invoke(app, ["init"])
     assert r.exit_code == 0, r.output
-    assert "installed" in r.output
+    assert "installed hooks" in r.output
     r = runner.invoke(app, ["init"])
-    assert "already installed" in r.output
+    assert "hooks already installed" in r.output
 
     s = json.loads(settings.read_text())
     assert s["model"] == "opus" and "Stop" in s["hooks"]
-    assert len(s["hooks"]["PostToolUse"]) == 1
+    assert len(s["hooks"]["PostToolUse"]) == 1 and len(s["hooks"]["PreToolUse"]) == 1
     assert (repo / ".agentgit" / "config.toml").exists()
     assert ".agentgit/local/" in (repo / ".gitignore").read_text()
 

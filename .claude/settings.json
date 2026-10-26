@@ -10,6 +10,17 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/home/akshat/gitagent/.venv/bin/python3\" -m agentgit hook pre-tool-use"
+          }
+        ]
+      }
     ]
   }
 }

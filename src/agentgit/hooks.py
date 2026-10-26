@@ -28,3 +28,19 @@ def post_tool_use(stdin: IO[str] = sys.stdin) -> None:
             db.close()
     except Exception as e:
         print(f"agentgit: {e}", file=sys.stderr)
+
+
+def pre_tool_use(stdin: IO[str] = sys.stdin) -> None:
+    """Checkpoint before irreversible calls. Never blocks: prints nothing to stdout."""
+    try:
+        ev = json.load(stdin)
+        path = store_path(ev["cwd"])
+        if not path.exists():
+            return
+        db = store.connect(path)
+        try:
+            store.auto_checkpoint(db, ev["session_id"], ev["tool_name"], ev.get("tool_input"))
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"agentgit: {e}", file=sys.stderr)
