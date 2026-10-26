@@ -19,3 +19,12 @@ def agentgit_dir(cwd: str | Path = ".") -> Path:
 
 def store_path(cwd: str | Path = ".") -> Path:
     return agentgit_dir(cwd) / "local" / "store.db"
+
+
+def worktree_root(cwd: str | Path = ".") -> Path:
+    """Top level of the worktree containing cwd (linked worktrees resolve to themselves)."""
+    top = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=cwd, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    return Path(top)

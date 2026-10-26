@@ -5,7 +5,7 @@ import sys
 from typing import IO
 
 from agentgit import store
-from agentgit.paths import store_path
+from agentgit.paths import store_path, worktree_root
 
 
 def post_tool_use(stdin: IO[str] = sys.stdin) -> None:
@@ -19,7 +19,7 @@ def post_tool_use(stdin: IO[str] = sys.stdin) -> None:
             store.record_step(
                 db,
                 session_id=ev["session_id"],
-                worktree=ev["cwd"],
+                worktree=str(worktree_root(ev["cwd"])),
                 tool=ev["tool_name"],
                 tool_input=ev.get("tool_input"),
                 tool_output=ev.get("tool_response"),

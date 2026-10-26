@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/home/akshat/gitagent/.venv/bin/python\" -m agentgit hook post-tool-use"
+            "command": "\"/home/akshat/gitagent/.venv/bin/python3\" -m agentgit hook post-tool-use"
           }
         ]
       }

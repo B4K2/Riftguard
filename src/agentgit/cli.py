@@ -8,8 +8,8 @@ from pathlib import Path
 
 import typer
 
-from agentgit import hooks, store
-from agentgit.paths import agentgit_dir, repo_root, store_path
+from agentgit import decisions, hooks, store
+from agentgit.paths import agentgit_dir, repo_root, store_path, worktree_root
 
 app = typer.Typer(help="Version control and coordination for AI coding agents.", no_args_is_help=True)
 hook_app = typer.Typer(help="Hook entry points (called by Claude Code, not by you).")
@@ -24,9 +24,56 @@ harness = "claude-code"
 """
 
 
+CLAUDE_MD_START = "<!-- agentgit:start -->"
+CLAUDE_MD_END = "<!-- agentgit:end -->"
+CLAUDE_MD_BLOCK = f"""{CLAUDE_MD_START}
+## AgentGit (multi-agent coordination)
+
+This repo uses AgentGit. Other agents may be working in parallel worktrees.
+
+- Before any architectural choice (datastore, framework, API style, auth, major dependency,
+  project layout), call the `check_decisions` MCP tool with the topic. If a decision exists,
+  follow it; do not introduce a competing choice.
+- After making such a choice, call `record_decision(topic, choice, reason)`.
+- If `record_decision` warns about a conflict, stop and align or ask the developer.
+- Call `checkpoint(label)` before risky or exploratory work.
+{CLAUDE_MD_END}
+"""
+
+
 def _hook_command() -> str:
     # Absolute interpreter path so the hook works without agentgit on PATH.
     return f'"{sys.executable}" -m agentgit hook post-tool-use'
+
+
+def _install_mcp(root: Path) -> bool:
+    """Register the agentgit MCP server in .mcp.json. Returns True if it changed."""
+    path = root / ".mcp.json"
+    config = json.loads(path.read_text()) if path.exists() else {}
+    entry = {"command": sys.executable, "args": ["-m", "agentgit", "mcp"]}
+    servers = config.setdefault("mcpServers", {})
+    if servers.get("agentgit") == entry:
+        return False
+    servers["agentgit"] = entry
+    path.write_text(json.dumps(config, indent=2) + "\n")
+    return True
+
+
+def _install_claude_md(root: Path) -> bool:
+    """Add (or refresh) the agentgit section of CLAUDE.md. Returns True if it changed."""
+    path = root / "CLAUDE.md"
+    text = path.read_text() if path.exists() else ""
+    if CLAUDE_MD_START in text:
+        head, rest = text.split(CLAUDE_MD_START, 1)
+        tail = rest.split(CLAUDE_MD_END, 1)[1].lstrip("\n") if CLAUDE_MD_END in rest else ""
+        new = head + CLAUDE_MD_BLOCK + tail
+    else:
+        new = text + ("\n" if text and not text.endswith("\n") else "") + \
+            ("\n" if text else "") + CLAUDE_MD_BLOCK
+    if new == text:
+        return False
+    path.write_text(new)
+    return True
 
 
 def _install_hook(root: Path) -> bool:
@@ -87,10 +134,13 @@ def init() -> None:
         (d / "config.toml").write_text(CONFIG_TOML)
     store.init_store(store_path())
     _ensure_gitignore(root)
-    changed = _install_hook(root)
     typer.echo(f"initialised {d}")
-    typer.echo("installed PostToolUse hook in .claude/settings.json" if changed
+    typer.echo("installed PostToolUse hook in .claude/settings.json" if _install_hook(root)
                else "hook already installed")
+    typer.echo("registered MCP server in .mcp.json" if _install_mcp(root)
+               else "MCP server already registered")
+    typer.echo("added agentgit section to CLAUDE.md" if _install_claude_md(root)
+               else "CLAUDE.md already up to date")
 
 
 @app.command()
@@ -150,6 +200,79 @@ def show(step: str) -> None:
     typer.echo("input:\n" + json.dumps(store.get_object(db, s.input_hash), indent=2))
     if s.output_hash:
         typer.echo("\noutput:\n" + json.dumps(store.get_object(db, s.output_hash), indent=2))
+
+
+@app.command("decisions")
+def list_decisions(
+    all_: bool = typer.Option(False, "--all", help="Include superseded decisions."),
+    topic: str = typer.Option(None, "--topic", help="Only decisions matching this topic."),
+) -> None:
+    """List architectural decisions."""
+    db = _open()
+    found = decisions.all_decisions(db) if all_ else decisions.check(db, None)
+    if topic:
+        found = [d for d in found if decisions.topics_match(topic, d.topic)]
+    if not found:
+        typer.echo("no decisions")
+    for d in found:
+        mark = "" if d.status == "active" else f"  ({d.status})"
+        typer.echo(d.summary() + mark)
+
+
+@app.command()
+def decide(
+    topic: str,
+    choice: str,
+    reason: str = typer.Option(None, "--reason", "-r"),
+    agent: str = typer.Option("developer", "--as", help="Who is deciding."),
+) -> None:
+    """Record a decision by hand (agents use the MCP tool instead)."""
+    db = _open()
+    result = decisions.record(db, topic, choice, reason, agent)
+    decisions.export(db, agentgit_dir() / "decisions")
+    typer.echo(f"recorded {result.decision.summary()}")
+    for d in result.superseded:
+        typer.echo(f"superseded {d.summary()}")
+    for d in result.conflicts:
+        typer.echo(f"warning: possible conflict with {d.summary()}", err=True)
+
+
+@app.command("supersede")
+def supersede_cmd(decision_id: int) -> None:
+    """Mark a decision as superseded."""
+    db = _open()
+    if not decisions.supersede(db, decision_id):
+        typer.echo(f"error: no active decision #{decision_id}", err=True)
+        raise typer.Exit(1)
+    decisions.export(db, agentgit_dir() / "decisions")
+    typer.echo(f"superseded #{decision_id}")
+
+
+@app.command("checkpoint")
+def checkpoint_cmd(
+    label: str,
+    agent: str = typer.Option(None, "--agent", "-a",
+                              help="Defaults to the latest agent in this worktree."),
+    note: str = typer.Option(None, "--note"),
+) -> None:
+    """Name an agent's current step."""
+    db = _open()
+    if agent:
+        row = db.execute("SELECT id, head FROM agents WHERE id=?", (agent,)).fetchone()
+    else:
+        row = store.agent_for_worktree(db, str(worktree_root()))
+    if not row or not row[1]:
+        typer.echo("error: no recorded agent steps to checkpoint", err=True)
+        raise typer.Exit(1)
+    name = store.create_checkpoint(db, label, row[0], row[1], note)
+    typer.echo(f"checkpoint {name} -> {row[1][:10]} ({row[0]})")
+
+
+@app.command()
+def mcp() -> None:
+    """Run the MCP server over stdio (launched by Claude Code)."""
+    from agentgit.mcp_server import main
+    main()
 
 
 @hook_app.command("post-tool-use")

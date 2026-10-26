@@ -176,3 +176,31 @@ def walk(db: sqlite3.Connection, head: str | None) -> Iterator[Step]:
         step = Step(*row)
         yield step
         head = step.parent
+
+
+def agent_for_worktree(db: sqlite3.Connection, worktree: str) -> tuple[str, str | None] | None:
+    """(agent_id, head) of the most recently active agent in a worktree, if any.
+
+    The MCP server has no session id, so this is how it learns who is calling. Two
+    concurrent sessions in one worktree are ambiguous; agentgit expects one agent per worktree.
+    """
+    return db.execute(
+        """SELECT a.id, a.head FROM agents a LEFT JOIN steps s ON s.hash = a.head
+           WHERE a.worktree = ? ORDER BY COALESCE(s.ts, 0) DESC LIMIT 1""",
+        (worktree,),
+    ).fetchone()
+
+
+def create_checkpoint(
+    db: sqlite3.Connection, label: str, agent_id: str, step_hash: str, note: str | None = None
+) -> str:
+    """Name the agent's current step. Returns the stored name (suffixed if label is taken)."""
+    name, n = label, 1
+    while db.execute("SELECT 1 FROM checkpoints WHERE name=?", (name,)).fetchone():
+        n += 1
+        name = f"{label}-{n}"
+    db.execute(
+        "INSERT INTO checkpoints VALUES (?, ?, ?, ?, ?)",
+        (name, step_hash, agent_id, note, time.time()),
+    )
+    return name

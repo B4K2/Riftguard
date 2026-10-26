@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "Version control and coordination layer for AI coding agents"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["typer>=0.12"]
+dependencies = [
+    "mcp>=1.2",
+    "typer>=0.12",
+]
 
 [project.scripts]
 agentgit = "agentgit.cli:app"
