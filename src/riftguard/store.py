@@ -100,7 +100,10 @@ READ_ONLY_TOOLS = {"riftguard": {"status", "log", "show", "decisions", "checkpoi
 def _bash_is_pure(command: str) -> bool:
     if re.search(r"(?<![0-9&])>|\$\(|`", command.replace("2>&1", "").replace(">/dev/null", "")):
         return False  # writes to a file, or runs a substitution we can't see into
-    for segment in re.split(r"&&|\|\||;|\|", command):
+    # Split on shell operators only outside quotes and escapes (grep 'a|b', grep a\|b).
+    unquoted = re.sub(r"\\.", "_", command)
+    unquoted = re.sub(r"'[^']*'|\"[^\"]*\"", "_", unquoted)
+    for segment in re.split(r"&&|\|\||;|\|", unquoted):
         words = segment.split()
         while words and "=" in words[0]:  # VAR=value prefixes
             words = words[1:]
@@ -110,6 +113,8 @@ def _bash_is_pure(command: str) -> bool:
             continue
         cmd, sub = words[0], words[1] if len(words) > 1 else ""
         if cmd == "cd" or cmd in READ_ONLY_COMMANDS:
+            continue
+        if cmd == "sed" and not any(w.startswith(("-i", "--in-place")) for w in words):
             continue
         if cmd == "git" and sub in READ_ONLY_GIT:
             continue
