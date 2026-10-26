@@ -1,6 +1,6 @@
 [project]
 name = "riftguard"
-version = "0.1.0"
+version = "0.2.0"
 description = "Coordination layer for parallel AI coding agents: shared decisions, conflict judging, trajectories"
 readme = "README.md"
 license = "MIT"
