@@ -17,12 +17,17 @@ told before it introduces MongoDB, not at merge time.
   in `CLAUDE.md` tells them to check before making an architectural choice.
 - **Decisions** are exported to `.agentgit/decisions/*.md` and committed; trajectories stay local.
 
-## Quick start
+## Install
 
 ```bash
-uv sync
-cd <your repo>
-uv run --project <path to agentgit> agentgit init
+uv tool install git+https://github.com/B4K2/GitAgent
+# or: pipx install git+https://github.com/B4K2/GitAgent
+```
+
+Then, inside any git repository:
+
+```bash
+agentgit init
 ```
 
 `init` creates `.agentgit/`, installs the PostToolUse hook in `.claude/settings.json`, registers
@@ -49,10 +54,12 @@ Claude Code in the repo to pick them up.
 - [ ] Phase 4: rewind and summary-seeded forks
 
 Current limitations: one agent per worktree; topic matching is a keyword/synonym heuristic until
-the judge lands; all Bash calls are tagged irreversible; `init` writes this machine's venv path.
+the judge lands; all Bash calls are tagged irreversible.
 
 ## Development
 
 ```bash
+uv sync
 uv run pytest
+uv run agentgit init   # in a dev venv, init pins this venv's interpreter path in the configs
 ```

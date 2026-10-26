@@ -92,7 +92,7 @@ def test_init_registers_mcp_and_claude_md_idempotently(repo):
     md = (repo / "CLAUDE.md").read_text()
     assert md.startswith("# My project") and md.count("agentgit:start") == 1
     mcp = json.loads((repo / ".mcp.json").read_text())
-    assert mcp["mcpServers"]["agentgit"]["args"] == ["-m", "agentgit", "mcp"]
+    assert mcp["mcpServers"]["agentgit"]["args"][-1] == "mcp"
 
 
 def test_cli_decide_conflicts_with_agent_decision(repo, replay):
@@ -107,3 +107,30 @@ def test_cli_decide_conflicts_with_agent_decision(repo, replay):
     assert r.exit_code == 0
     r = runner.invoke(app, ["decisions"])
     assert "MySQL" not in r.output
+
+
+def test_check_output_stays_compact(repo, replay):
+    from agentgit.mcp_server import OTHERS_LIMIT, get_decision
+    runner.invoke(app, ["init"])
+    replay("read", repo)
+    ctx = Context(repo)
+    long_reason = "a long justification " * 10
+    for i in range(OTHERS_LIMIT + 5):
+        record_decision(ctx, f"area{i}", f"choice{i}", long_reason)
+    out = check_decisions(ctx, "database")
+    assert long_reason not in out                      # unmatched: no reasons
+    assert "+5 more" in out
+    assert f"#{OTHERS_LIMIT + 5} area{OTHERS_LIMIT + 4}: choice" in out  # newest first
+    assert long_reason.strip() in get_decision(ctx, 1)
+    assert "No decision #999" in get_decision(ctx, 999)
+
+
+def test_init_writes_portable_commands_when_installed_as_tool(repo, monkeypatch):
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    monkeypatch.setattr("agentgit.cli.shutil.which", lambda name: "/usr/local/bin/agentgit")
+    runner.invoke(app, ["init"])
+    mcp = json.loads((repo / ".mcp.json").read_text())
+    assert mcp["mcpServers"]["agentgit"] == {"command": "agentgit", "args": ["mcp"]}
+    settings = json.loads((repo / ".claude" / "settings.json").read_text())
+    cmd = settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+    assert cmd == "agentgit hook post-tool-use"

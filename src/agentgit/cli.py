@@ -1,6 +1,8 @@
 """agentgit command-line interface."""
 
 import json
+import os
+import shutil
 import sqlite3
 import sys
 from datetime import datetime
@@ -37,12 +39,20 @@ This repo uses AgentGit. Other agents may be working in parallel worktrees.
 - After making such a choice, call `record_decision(topic, choice, reason)`.
 - If `record_decision` warns about a conflict, stop and align or ask the developer.
 - Call `checkpoint(label)` before risky or exploratory work.
+- Use these MCP tools for decisions; don't read files under `.agentgit/` directly.
 {CLAUDE_MD_END}
 """
 
 
+def _portable() -> bool:
+    """True when agentgit is installed as a tool (uv tool / pipx) and on PATH, so configs can
+    say plain `agentgit`. Inside a dev venv (`uv run`), pin the interpreter path instead."""
+    return shutil.which("agentgit") is not None and "VIRTUAL_ENV" not in os.environ
+
+
 def _hook_command() -> str:
-    # Absolute interpreter path so the hook works without agentgit on PATH.
+    if _portable():
+        return "agentgit hook post-tool-use"
     return f'"{sys.executable}" -m agentgit hook post-tool-use'
 
 
@@ -50,7 +60,8 @@ def _install_mcp(root: Path) -> bool:
     """Register the agentgit MCP server in .mcp.json. Returns True if it changed."""
     path = root / ".mcp.json"
     config = json.loads(path.read_text()) if path.exists() else {}
-    entry = {"command": sys.executable, "args": ["-m", "agentgit", "mcp"]}
+    entry = ({"command": "agentgit", "args": ["mcp"]} if _portable()
+             else {"command": sys.executable, "args": ["-m", "agentgit", "mcp"]})
     servers = config.setdefault("mcpServers", {})
     if servers.get("agentgit") == entry:
         return False

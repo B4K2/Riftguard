@@ -9,4 +9,5 @@ This repo uses AgentGit. Other agents may be working in parallel worktrees.
 - After making such a choice, call `record_decision(topic, choice, reason)`.
 - If `record_decision` warns about a conflict, stop and align or ask the developer.
 - Call `checkpoint(label)` before risky or exploratory work.
+- Use these MCP tools for decisions; don't read files under `.agentgit/` directly.
 <!-- agentgit:end -->

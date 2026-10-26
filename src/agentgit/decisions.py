@@ -45,6 +45,9 @@ class Decision:
         why = f" (reason: {self.reason})" if self.reason else ""
         return f"#{self.id} [{self.topic}] {self.choice} by {who}{why}"
 
+    def short(self) -> str:
+        return f"#{self.id} {self.topic}: {self.choice}"
+
 
 @dataclass
 class RecordResult:
@@ -78,6 +81,11 @@ def _row(r) -> Decision:
 def active(db: sqlite3.Connection) -> list[Decision]:
     return [_row(r) for r in db.execute(
         "SELECT * FROM decisions WHERE status='active' ORDER BY id")]
+
+
+def get(db: sqlite3.Connection, decision_id: int) -> Decision | None:
+    r = db.execute("SELECT * FROM decisions WHERE id=?", (decision_id,)).fetchone()
+    return _row(r) if r else None
 
 
 def all_decisions(db: sqlite3.Connection) -> list[Decision]:

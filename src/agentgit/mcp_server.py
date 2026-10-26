@@ -20,6 +20,10 @@ decided it, follow that decision instead of introducing a competing one. After m
 choice, call record_decision. Call checkpoint before risky or exploratory work."""
 
 
+# Unmatched decisions shown by check_decisions(topic); keeps output small as decisions grow.
+OTHERS_LIMIT = 20
+
+
 class Context:
     """Resolves the store and the calling agent for the server's worktree."""
 
@@ -51,18 +55,32 @@ def check_decisions(ctx: Context, topic: str | None = None) -> str:
     if topic is None:
         if not everything:
             return "No active decisions yet."
-        return "Active decisions:\n" + "\n".join(d.summary() for d in everything)
+        return "Active decisions (get_decision(id) for reasons):\n" + \
+            "\n".join(d.short() for d in everything)
     if found:
         lines = [f"Existing decisions matching '{topic}' (follow these):"]
         lines += [d.summary() for d in found]
     else:
         lines = [f"No active decision matches '{topic}'. You may decide it, then record_decision."]
-    others = [d for d in everything if d not in found]
+    # Topic matching is crude, so list the rest compactly (newest first, capped) as a backstop.
+    others = [d for d in reversed(everything) if d not in found]
     if others:
-        # Topic matching is crude; show the rest so the agent can spot related ones.
         lines.append("Other active decisions (check whether any are related):")
-        lines += [d.summary() for d in others]
+        lines += [d.short() for d in others[:OTHERS_LIMIT]]
+        if len(others) > OTHERS_LIMIT:
+            lines.append(f"+{len(others) - OTHERS_LIMIT} more; call check_decisions() to list all.")
     return "\n".join(lines)
+
+
+def get_decision(ctx: Context, decision_id: int) -> str:
+    db = ctx.connect()
+    try:
+        d = decisions.get(db, decision_id)
+    finally:
+        db.close()
+    if d is None:
+        return f"No decision #{decision_id}."
+    return d.summary() + ("" if d.status == "active" else f" [{d.status}]")
 
 
 def record_decision(ctx: Context, topic: str, choice: str, reason: str) -> str:
@@ -115,6 +133,11 @@ def build_server(cwd: str | Path) -> MCPServer:
         """Record an architectural decision so other agents follow it. topic: short area
         name ("database"); choice: what you picked ("Postgres"); reason: why."""
         return record_decision(ctx, topic, choice, reason)
+
+    @server.tool(name="get_decision")
+    def _get(decision_id: int) -> str:
+        """Full details (including the reason) of one decision by id."""
+        return get_decision(ctx, decision_id)
 
     @server.tool(name="checkpoint")
     def _checkpoint(label: str, note: str | None = None) -> str:
