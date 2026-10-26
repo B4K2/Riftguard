@@ -354,6 +354,32 @@ def resolve(
     typer.echo(f"kept {kept.short()}; {dropped.short()} is now {dropped.status}")
 
 
+@app.command()
+def audit(
+    hold: bool = typer.Option(False, "--hold", help="Hold the newer side of each conflict."),
+) -> None:
+    """Judge all active decisions against each other, e.g. after merging branches. Exits 1
+    if any conflict is found, so it can run from a git post-merge hook or CI."""
+    from riftguard.config import judge_from_config
+
+    db = _open()
+    found = decisions.audit(db, judge_from_config(), hold=hold)
+    if not found:
+        typer.echo("no conflicts")
+        return
+    for d, v in found:
+        other = decisions.get(db, v.with_id) if v.with_id else None
+        against = other.short() if other else "an unknown decision"
+        typer.echo(f"{d.short()} ({d.agent_id}) conflicts with {against}"
+                   f"{' (' + other.agent_id + ')' if other and other.agent_id else ''}")
+        typer.echo(f"  judge {v.backend}: severity {v.severity}, confidence {v.confidence:.2f}")
+        typer.echo(f"  {v.recommendation}")
+    if hold:
+        decisions.export(db, riftguard_dir() / "decisions")
+        typer.echo(f"held {len(found)} for review; see `riftguard conflicts`")
+    raise typer.Exit(1)
+
+
 @app.command("supersede")
 def supersede_cmd(decision_id: int) -> None:
     """Mark a decision as superseded."""
@@ -383,6 +409,50 @@ def checkpoint_cmd(
         raise typer.Exit(1)
     name = store.create_checkpoint(db, label, row[0], row[1], note)
     typer.echo(f"checkpoint {name} -> {row[1][:10]} ({row[0]})")
+
+
+@app.command("rewind")
+def rewind_cmd(
+    checkpoint: str,
+    reason: str = typer.Option(None, "--reason", "-r", help="Why, kept in the rewind log."),
+) -> None:
+    """Move an agent's history back to a checkpoint. Files are not touched: undo edits with
+    your agent's own rewind (Claude Code: /rewind) and clean up the side effects listed."""
+    db = _open()
+    try:
+        r = store.rewind(db, checkpoint, reason)
+    except (KeyError, ValueError) as e:
+        typer.echo(f"error: {e.args[0]}", err=True)
+        raise typer.Exit(1)
+    if not r.dropped:
+        typer.echo(f"{r.agent_id} is already at {checkpoint}")
+        return
+    typer.echo(f"rewound {r.agent_id} to {checkpoint} ({r.to_step[:10]}), "
+               f"dropping {len(r.dropped)} steps")
+    if r.irreversible:
+        typer.echo("warning: these steps had side effects that rewinding does not undo:", err=True)
+        for s in reversed(r.irreversible):
+            inp = store.get_object(db, s.input_hash)
+            detail = inp.get("command", "") if isinstance(inp, dict) else ""
+            typer.echo(f"  {s.hash[:10]}  {s.tool}  {str(detail)[:100]}", err=True)
+    oldest = r.dropped[-1].ts
+    later = [d for d in decisions.active(db) if d.agent_id == r.agent_id and d.ts >= oldest]
+    for d in later:
+        typer.echo(f"note: {d.short()} was decided after the checkpoint; "
+                   f"`riftguard supersede {d.id}` if it no longer holds")
+
+
+@app.command()
+def rewinds(agent: str = typer.Option(None, "--agent", "-a")) -> None:
+    """List past rewinds and their reasons, newest first."""
+    db = _open()
+    rows = db.execute(
+        "SELECT ts, agent_id, checkpoint, from_head, reason FROM rewinds"
+        " WHERE (? IS NULL OR agent_id = ?) ORDER BY ts DESC", (agent, agent)).fetchall()
+    if not rows:
+        typer.echo("no rewinds")
+    for ts, agent_id, cp, from_head, reason in rows:
+        typer.echo(f"{_fmt_ts(ts)}  {agent_id:<24} to {cp:<28} from {from_head[:10]}  {reason or ''}")
 
 
 @app.command()

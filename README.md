@@ -123,11 +123,14 @@ model = ""         # e.g. "haiku"
 | `riftguard conflicts` | Decisions held for review |
 | `riftguard resolve <id> --keep <id>` | Settle a conflict |
 | `riftguard supersede <id>` | Retire a decision |
+| `riftguard audit [--hold]` | Judge all active decisions against each other, e.g. after a merge (exits 1 on conflict) |
 | `riftguard status` | Agents, worktrees, step counts, last activity |
 | `riftguard log [-a agent] [-t tool]` | Recorded steps, newest first |
 | `riftguard show <hash>` | One step's full input and output |
 | `riftguard checkpoint <label>` | Name an agent's current step |
 | `riftguard checkpoints [--no-auto]` | List checkpoints |
+| `riftguard rewind <checkpoint> -r <reason>` | Move an agent's history back to a checkpoint and warn about side effects it can't undo |
+| `riftguard rewinds` | Past rewinds and their reasons |
 
 ## Limitations
 

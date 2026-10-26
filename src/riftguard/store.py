@@ -56,6 +56,18 @@ CREATE TABLE IF NOT EXISTS decisions (
   verdict     TEXT                              -- judge verdict JSON
 );
 """
+# Added after the first release; migrate() creates it in older stores.
+REWINDS_TABLE = """
+CREATE TABLE IF NOT EXISTS rewinds (
+  id          INTEGER PRIMARY KEY,
+  agent_id    TEXT NOT NULL,
+  from_head   TEXT NOT NULL,                    -- head before the rewind (the dropped branch tip)
+  to_step     TEXT NOT NULL,
+  checkpoint  TEXT NOT NULL,
+  reason      TEXT,
+  ts          REAL NOT NULL
+)"""
+SCHEMA += REWINDS_TABLE + ";\n"
 
 # Columns added after the first release; init_store adds them to older stores.
 MIGRATIONS = [("decisions", "conflict_with", "INTEGER"), ("decisions", "verdict", "TEXT")]
@@ -82,7 +94,7 @@ READ_ONLY_COMMANDS = {
 }
 READ_ONLY_GIT = {"status", "log", "diff", "show", "branch", "blame", "rev-parse", "ls-files",
                  "remote", "describe", "shortlog", "grep"}
-READ_ONLY_TOOLS = {"riftguard": {"status", "log", "show", "decisions", "checkpoints"}}
+READ_ONLY_TOOLS = {"riftguard": {"status", "log", "show", "decisions", "checkpoints", "rewinds"}}
 
 
 def _bash_is_pure(command: str) -> bool:
@@ -158,6 +170,8 @@ def init_store(path: Path) -> None:
 
 
 def migrate(db: sqlite3.Connection) -> None:
+    if db.execute("SELECT 1 FROM sqlite_master WHERE name='steps'").fetchone():
+        db.execute(REWINDS_TABLE)
     for table, column, kind in MIGRATIONS:
         cols = {r[1] for r in db.execute(f"PRAGMA table_info({table})")}
         if cols and column not in cols:  # empty: table not created yet
@@ -288,3 +302,48 @@ def auto_checkpoint(
     detail = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
     note = f"before {tool}: {detail}"[:200]
     return create_checkpoint(db, f"auto-{head[:10]}", agent_id, head, note)
+
+
+@dataclass
+class Rewind:
+    agent_id: str
+    checkpoint: str
+    to_step: str
+    dropped: list[Step]  # steps no longer on the agent's chain, newest first
+
+    @property
+    def irreversible(self) -> list[Step]:
+        """Dropped steps whose effects rewinding the history does not undo."""
+        return [s for s in self.dropped if s.effect == "irreversible"]
+
+
+def rewind(db: sqlite3.Connection, checkpoint: str, reason: str | None = None) -> Rewind:
+    """Move the checkpoint's agent back to it. Later steps stay in the store (like a git
+    reflog) but leave the agent's chain; the next step branches from the checkpoint. Only the
+    history moves: files and other side effects are not touched."""
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        row = db.execute("SELECT step_hash, agent_id FROM checkpoints WHERE name=?",
+                         (checkpoint,)).fetchone()
+        if row is None:
+            raise KeyError(f"no checkpoint {checkpoint}")
+        to_step, agent_id = row
+        head = db.execute("SELECT head FROM agents WHERE id=?", (agent_id,)).fetchone()[0]
+        dropped = []
+        for s in walk(db, head):
+            if s.hash == to_step:
+                break
+            dropped.append(s)
+        else:
+            raise ValueError(f"checkpoint {checkpoint} is not on {agent_id}'s current chain")
+        if dropped:
+            db.execute("UPDATE agents SET head=? WHERE id=?", (to_step, agent_id))
+            db.execute(
+                "INSERT INTO rewinds (agent_id, from_head, to_step, checkpoint, reason, ts)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (agent_id, head, to_step, checkpoint, reason, time.time()))
+        db.execute("COMMIT")
+    except BaseException:
+        db.execute("ROLLBACK")
+        raise
+    return Rewind(agent_id, checkpoint, to_step, dropped)
