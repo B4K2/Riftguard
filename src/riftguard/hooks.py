@@ -9,6 +9,9 @@ from riftguard import store
 from riftguard.judge import JUDGE_ENV  # set in the judge's own sessions, which we skip
 from riftguard.paths import store_path, worktree_root
 
+# Set by `riftguard fork` when it launches an agent: the fork agent this session becomes.
+FORK_ENV = "RIFTGUARD_FORK"
+
 
 def post_tool_use(stdin: IO[str] = sys.stdin) -> None:
     if os.environ.get(JUDGE_ENV):
@@ -27,6 +30,7 @@ def post_tool_use(stdin: IO[str] = sys.stdin) -> None:
                 tool=ev["tool_name"],
                 tool_input=ev.get("tool_input"),
                 tool_output=ev.get("tool_response"),
+                fork=os.environ.get(FORK_ENV),
             )
         finally:
             db.close()

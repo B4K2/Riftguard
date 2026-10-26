@@ -131,6 +131,7 @@ model = ""         # e.g. "haiku"
 | `riftguard checkpoints [--no-auto]` | List checkpoints |
 | `riftguard rewind <checkpoint> -r <reason>` | Move an agent's history back to a checkpoint and warn about side effects it can't undo |
 | `riftguard rewinds` | Past rewinds and their reasons |
+| `riftguard fork <checkpoint> [--why ...] [--launch claude\|codex] [--worktree path]` | Start a new agent from a checkpoint, seeded with a summary instead of the transcript |
 
 ## Limitations
 
