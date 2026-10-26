@@ -188,6 +188,34 @@ def resolve(db: sqlite3.Connection, pending_id: int, keep_id: int) -> tuple[Deci
     return kept, dropped
 
 
+def audit(db: sqlite3.Connection, judge: "Judge", hold: bool = False
+          ) -> list[tuple[Decision, "Verdict"]]:
+    """Judge every active decision against earlier active ones by other agents, e.g. after a
+    merge brings in decisions that never met. Returns (newer decision, verdict) per conflict.
+    With hold, the newer decision of each conflicting pair is held for review as if it had
+    just been recorded."""
+    from riftguard.judge import judge_with_fallback
+
+    found = []
+    held: set[int] = set()
+    decisions = active(db)
+    for i, d in enumerate(decisions):
+        candidates = [e for e in decisions[:i] if e.id not in held and e.agent_id != d.agent_id
+                      and topics_match(d.topic, e.topic)]
+        if not candidates:
+            continue
+        verdict = judge_with_fallback(judge, d.topic, d.choice, d.reason, candidates)
+        if not verdict.conflict:
+            continue
+        found.append((d, verdict))
+        if hold:
+            held.add(d.id)
+            db.execute(
+                "UPDATE decisions SET status='pending', conflict_with=?, verdict=? WHERE id=?",
+                (verdict.with_id, verdict.to_json(), d.id))
+    return found
+
+
 def supersede(db: sqlite3.Connection, decision_id: int) -> bool:
     cur = db.execute(
         "UPDATE decisions SET status='superseded' WHERE id=? AND status='active'", (decision_id,))
