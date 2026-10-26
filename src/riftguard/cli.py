@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import sqlite3
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -453,6 +454,50 @@ def rewinds(agent: str = typer.Option(None, "--agent", "-a")) -> None:
         typer.echo("no rewinds")
     for ts, agent_id, cp, from_head, reason in rows:
         typer.echo(f"{_fmt_ts(ts)}  {agent_id:<24} to {cp:<28} from {from_head[:10]}  {reason or ''}")
+
+
+@app.command("fork")
+def fork_cmd(
+    checkpoint: str,
+    why: str = typer.Option(None, "--why", "-w", help="What the fork should do differently."),
+    launch: str = typer.Option(None, "--launch", help="claude | codex: start it with the summary."),
+    worktree: Path = typer.Option(None, "--worktree",
+                                  help="Create a git worktree (and branch) here for the fork."),
+) -> None:
+    """Start a new agent from a checkpoint, seeded with a summary instead of the transcript.
+    Without --launch, prints the summary and leaves the fork waiting to be claimed."""
+    from riftguard import fork
+
+    if launch not in (None, "claude", "codex"):
+        typer.echo("error: --launch must be claude or codex", err=True)
+        raise typer.Exit(1)
+    db = _open()
+    try:
+        text = fork.summary(db, checkpoint, why)
+        fork_id, source = store.create_fork(db, checkpoint)
+    except KeyError as e:
+        typer.echo(f"error: {e.args[0]}", err=True)
+        raise typer.Exit(1)
+    cwd = Path.cwd()
+    if worktree:
+        try:
+            subprocess.run(["git", "worktree", "add", "-q", "-b", fork_id, str(worktree)],
+                           check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            typer.echo(f"error: git worktree add failed: {e.stderr.strip()}", err=True)
+            raise typer.Exit(1)
+        cwd = worktree.resolve()
+    typer.echo(f"forked {fork_id} from {source} at {checkpoint}", err=True)
+    if not launch:
+        typer.echo(text)
+        typer.echo(f"start it with: cd {cwd} && {hooks.FORK_ENV}={fork_id} claude  (or codex), "
+                   "then paste the summary above", err=True)
+        return
+    if not shutil.which(launch):
+        typer.echo(f"error: {launch} not found on PATH", err=True)
+        raise typer.Exit(1)
+    os.chdir(cwd)
+    os.execvpe(launch, [launch, text], {**os.environ, hooks.FORK_ENV: fork_id})
 
 
 @app.command()

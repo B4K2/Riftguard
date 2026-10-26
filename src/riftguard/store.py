@@ -100,7 +100,10 @@ READ_ONLY_TOOLS = {"riftguard": {"status", "log", "show", "decisions", "checkpoi
 def _bash_is_pure(command: str) -> bool:
     if re.search(r"(?<![0-9&])>|\$\(|`", command.replace("2>&1", "").replace(">/dev/null", "")):
         return False  # writes to a file, or runs a substitution we can't see into
-    for segment in re.split(r"&&|\|\||;|\|", command):
+    # Split on shell operators only outside quotes and escapes (grep 'a|b', grep a\|b).
+    unquoted = re.sub(r"\\.", "_", command)
+    unquoted = re.sub(r"'[^']*'|\"[^\"]*\"", "_", unquoted)
+    for segment in re.split(r"&&|\|\||;|\|", unquoted):
         words = segment.split()
         while words and "=" in words[0]:  # VAR=value prefixes
             words = words[1:]
@@ -110,6 +113,8 @@ def _bash_is_pure(command: str) -> bool:
             continue
         cmd, sub = words[0], words[1] if len(words) > 1 else ""
         if cmd == "cd" or cmd in READ_ONLY_COMMANDS:
+            continue
+        if cmd == "sed" and not any(w.startswith(("-i", "--in-place")) for w in words):
             continue
         if cmd == "git" and sub in READ_ONLY_GIT:
             continue
@@ -204,14 +209,23 @@ def record_step(
     tool_input: Any,
     tool_output: Any,
     ts: float | None = None,
+    fork: str | None = None,
 ) -> str:
-    """Append one tool call to the session's chain and advance its head. Returns the step hash."""
+    """Append one tool call to the session's chain and advance its head. Returns the step hash.
+    fork names an unclaimed fork agent this session should become (see create_fork)."""
     ts = time.time() if ts is None else ts
     db.execute("BEGIN IMMEDIATE")  # serialize head updates across concurrent hooks
     try:
         row = db.execute(
             "SELECT id, head FROM agents WHERE session_id=?", (session_id,)
         ).fetchone()
+        if row is None and fork:
+            # First step of a forked session: claim the fork agent, which starts at its checkpoint.
+            row = db.execute("SELECT id, head FROM agents WHERE id=? AND session_id IS NULL",
+                             (fork,)).fetchone()
+            if row:
+                db.execute("UPDATE agents SET session_id=?, worktree=? WHERE id=?",
+                           (session_id, worktree, fork))
         if row is None:
             agent_id, parent = default_agent_id(session_id, worktree), None
             db.execute(
@@ -347,3 +361,28 @@ def rewind(db: sqlite3.Connection, checkpoint: str, reason: str | None = None) -
         db.execute("ROLLBACK")
         raise
     return Rewind(agent_id, checkpoint, to_step, dropped)
+
+
+def create_fork(db: sqlite3.Connection, checkpoint: str) -> tuple[str, str]:
+    """Create an agent whose chain starts at a checkpoint. Its steps share everything before
+    the checkpoint with the source agent. The agent has no session until the forked session's
+    first hook claims it. Returns (fork agent id, source agent id)."""
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        row = db.execute("SELECT c.step_hash, c.agent_id, a.worktree FROM checkpoints c"
+                         " JOIN agents a ON a.id = c.agent_id WHERE c.name=?",
+                         (checkpoint,)).fetchone()
+        if row is None:
+            raise KeyError(f"no checkpoint {checkpoint}")
+        step, source, worktree = row
+        n = 1
+        while db.execute("SELECT 1 FROM agents WHERE id=?", (f"{source}-fork{n}",)).fetchone():
+            n += 1
+        fork_id = f"{source}-fork{n}"
+        db.execute("INSERT INTO agents (id, worktree, head, forked_from) VALUES (?, ?, ?, ?)",
+                   (fork_id, worktree, step, step))
+        db.execute("COMMIT")
+    except BaseException:
+        db.execute("ROLLBACK")
+        raise
+    return fork_id, source
