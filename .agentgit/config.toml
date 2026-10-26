@@ -1,5 +1,8 @@
 # AgentGit settings (committed)
 version = 1
 
-[agents]
-harness = "claude-code"
+[judge]
+# Who decides whether two decisions conflict. "auto" uses Claude Code if installed, else
+# Codex, else a keyword heuristic. Runs headlessly on your existing login; no API key needed.
+backend = "auto"   # auto | claude | codex | heuristic
+model = ""         # optional, e.g. "haiku" for claude

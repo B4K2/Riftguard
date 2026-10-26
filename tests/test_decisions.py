@@ -34,11 +34,13 @@ def test_headline_scenario_agent_b_learns_of_agent_a(repo, tmp_path, replay):
     assert "Postgres" in out and "follow these" in out
 
     out = record_decision(b, "datastore", "MongoDB", "flexible schema")
-    assert "WARNING: possible conflict" in out and "Postgres" in out
+    assert out.startswith("HELD FOR REVIEW") and "Postgres" in out
 
     db = store.connect(store_path(repo))
-    by_agent = {d.agent_id: d.choice for d in decisions.active(db)}
-    assert by_agent == {"repo-sess-aaa": "Postgres", "wt-b-sess-bbb": "MongoDB"}
+    assert [d.choice for d in decisions.active(db)] == ["Postgres"]
+    (held,) = decisions.pending(db)
+    assert (held.choice, held.agent_id, held.conflict_with) == ("MongoDB", "wt-b-sess-bbb", 1)
+    assert "Pending review" in check_decisions(a, "database")
 
 
 def test_same_agent_supersedes_its_own_decision(repo, replay):
@@ -134,3 +136,15 @@ def test_init_writes_portable_commands_when_installed_as_tool(repo, monkeypatch)
     settings = json.loads((repo / ".claude" / "settings.json").read_text())
     cmd = settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
     assert cmd == "agentgit hook post-tool-use"
+
+
+def test_reads_survive_columns_added_by_newer_versions(repo, replay):
+    runner.invoke(app, ["init"])
+    replay("read", repo)
+    db = store.connect(store_path(repo))
+    db.execute("ALTER TABLE decisions ADD COLUMN added_later TEXT")
+    db.execute("ALTER TABLE steps ADD COLUMN added_later TEXT")
+    record_decision(Context(repo), "database", "Postgres", "tx")
+    assert [d.choice for d in decisions.active(db)] == ["Postgres"]
+    (head,) = db.execute("SELECT head FROM agents").fetchone()
+    assert len(list(store.walk(db, head))) == 1

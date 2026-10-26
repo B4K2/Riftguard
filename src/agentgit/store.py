@@ -50,10 +50,15 @@ CREATE TABLE IF NOT EXISTS decisions (
   reason      TEXT,
   agent_id    TEXT,
   checkpoint  TEXT,
-  status      TEXT NOT NULL DEFAULT 'active',
-  ts          REAL NOT NULL
+  status      TEXT NOT NULL DEFAULT 'active',  -- active | superseded | pending | rejected
+  ts          REAL NOT NULL,
+  conflict_with INTEGER,                        -- set while pending: the decision it clashes with
+  verdict     TEXT                              -- judge verdict JSON
 );
 """
+
+# Columns added after the first release; init_store adds them to older stores.
+MIGRATIONS = [("decisions", "conflict_with", "INTEGER"), ("decisions", "verdict", "TEXT")]
 
 # Side-effect class per tool. Unknown tools (including MCP tools) default to
 # irreversible so rewind errs on the side of warning.
@@ -62,7 +67,10 @@ EFFECTS = {
     "WebSearch": "pure", "WebFetch": "pure", "TodoWrite": "pure",
     "Edit": "reversible", "MultiEdit": "reversible", "Write": "reversible",
     "NotebookEdit": "reversible",
+    "apply_patch": "reversible",  # Codex file edits
 }
+# Tools whose input carries a shell command (Claude Code's Bash; Codex's shell tools).
+SHELL_TOOLS = {"Bash", "shell", "exec_command", "local_shell"}
 
 
 # Shell commands that only read. A Bash call is pure when every command in it is one of
@@ -101,9 +109,15 @@ def _bash_is_pure(command: str) -> bool:
 
 def classify(tool: str, tool_input: Any) -> str:
     """Side-effect class of one tool call: pure, reversible or irreversible."""
-    if tool == "Bash" and isinstance(tool_input, dict):
-        return "pure" if _bash_is_pure(str(tool_input.get("command", ""))) else "irreversible"
+    if tool in SHELL_TOOLS and isinstance(tool_input, dict):
+        command = tool_input.get("command", "")
+        if isinstance(command, list):  # Codex: ["bash", "-lc", "<script>"]
+            command = command[-1] if command[:1] in (["bash"], ["sh"], ["zsh"]) else " ".join(command)
+        return "pure" if _bash_is_pure(str(command)) else "irreversible"
     return EFFECTS.get(tool, "irreversible")
+
+
+STEP_COLUMNS = "hash, agent_id, parent, tool, input_hash, output_hash, effect, ts"
 
 
 @dataclass
@@ -131,6 +145,7 @@ def connect(path: Path) -> sqlite3.Connection:
     db = sqlite3.connect(path, timeout=5, isolation_level=None)
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA busy_timeout=5000")
+    migrate(db)
     return db
 
 
@@ -138,7 +153,15 @@ def init_store(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     db = connect(path)
     db.executescript(SCHEMA)
+    migrate(db)
     db.close()
+
+
+def migrate(db: sqlite3.Connection) -> None:
+    for table, column, kind in MIGRATIONS:
+        cols = {r[1] for r in db.execute(f"PRAGMA table_info({table})")}
+        if cols and column not in cols:  # empty: table not created yet
+            db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
 
 
 def put_object(db: sqlite3.Connection, obj: Any) -> str:
@@ -200,7 +223,7 @@ def record_step(
 
 def get_step(db: sqlite3.Connection, prefix: str) -> Step:
     rows = db.execute(
-        "SELECT * FROM steps WHERE hash LIKE ? LIMIT 2", (prefix + "%",)
+        f"SELECT {STEP_COLUMNS} FROM steps WHERE hash LIKE ? LIMIT 2", (prefix + "%",)
     ).fetchall()
     if not rows:
         raise KeyError(f"no step matching {prefix}")
@@ -212,7 +235,7 @@ def get_step(db: sqlite3.Connection, prefix: str) -> Step:
 def walk(db: sqlite3.Connection, head: str | None) -> Iterator[Step]:
     """Yield steps from head back to the root, following parent pointers (like git log)."""
     while head:
-        row = db.execute("SELECT * FROM steps WHERE hash=?", (head,)).fetchone()
+        row = db.execute(f"SELECT {STEP_COLUMNS} FROM steps WHERE hash=?", (head,)).fetchone()
         if row is None:
             return
         step = Step(*row)

@@ -14,6 +14,13 @@ def git(*args: str, cwd: Path) -> None:
     subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
 
 
+@pytest.fixture(autouse=True)
+def heuristic_judge(monkeypatch):
+    """Never shell out to a real claude/codex from tests."""
+    monkeypatch.setenv("AGENTGIT_JUDGE_BACKEND", "heuristic")
+    monkeypatch.delenv("AGENTGIT_JUDGE", raising=False)
+
+
 @pytest.fixture
 def repo(tmp_path: Path, monkeypatch) -> Path:
     """A git repo with one commit and a linked worktree at <tmp>/wt-b."""

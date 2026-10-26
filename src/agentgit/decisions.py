@@ -9,6 +9,10 @@ import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agentgit.judge import Judge, Verdict
 
 # Words that carry no meaning for topic matching ("which database to use" ~ "database").
 STOPWORDS = {
@@ -39,6 +43,8 @@ class Decision:
     checkpoint: str | None
     status: str
     ts: float
+    conflict_with: int | None = None
+    verdict: str | None = None
 
     def summary(self) -> str:
         who = self.agent_id or "unknown"
@@ -54,6 +60,11 @@ class RecordResult:
     decision: Decision
     superseded: list[Decision]   # this agent's own earlier decisions on the topic
     conflicts: list[Decision]    # other agents' active decisions on a matching topic
+    verdict: "Verdict | None" = None  # set when a judge looked at the conflicts
+
+    @property
+    def pending(self) -> bool:
+        return self.decision.status == "pending"
 
 
 # Each synonym maps to one fixed representative of its group ("datastore", "database" -> "db").
@@ -74,22 +85,27 @@ def topics_match(a: str, b: str) -> bool:
     return len(ta & tb) / min(len(ta), len(tb)) > 0.5
 
 
+# Explicit column list (never SELECT *): a store migrated by a newer agentgit must still be
+# readable by an older process, e.g. an MCP server started before an upgrade.
+COLUMNS = "id, topic, choice, reason, agent_id, checkpoint, status, ts, conflict_with, verdict"
+
+
 def _row(r) -> Decision:
     return Decision(*r)
 
 
 def active(db: sqlite3.Connection) -> list[Decision]:
     return [_row(r) for r in db.execute(
-        "SELECT * FROM decisions WHERE status='active' ORDER BY id")]
+        f"SELECT {COLUMNS} FROM decisions WHERE status='active' ORDER BY id")]
 
 
 def get(db: sqlite3.Connection, decision_id: int) -> Decision | None:
-    r = db.execute("SELECT * FROM decisions WHERE id=?", (decision_id,)).fetchone()
+    r = db.execute(f"SELECT {COLUMNS} FROM decisions WHERE id=?", (decision_id,)).fetchone()
     return _row(r) if r else None
 
 
 def all_decisions(db: sqlite3.Connection) -> list[Decision]:
-    return [_row(r) for r in db.execute("SELECT * FROM decisions ORDER BY id")]
+    return [_row(r) for r in db.execute(f"SELECT {COLUMNS} FROM decisions ORDER BY id")]
 
 
 def check(db: sqlite3.Connection, topic: str | None = None) -> list[Decision]:
@@ -107,27 +123,69 @@ def record(
     reason: str | None,
     agent_id: str | None,
     checkpoint: str | None = None,
+    judge: "Judge | None" = None,
 ) -> RecordResult:
-    """Record a decision. Supersedes the same agent's earlier decision on a matching topic;
-    reports (but does not block on) other agents' matching decisions."""
+    """Record a decision. Supersedes the same agent's earlier decision on a matching topic.
+
+    Other agents' matching decisions are candidates. Without a judge they are only reported.
+    With one, a confirmed conflict stores the new decision as pending until the developer
+    resolves it."""
+    from agentgit.judge import judge_with_fallback
+
+    candidates = [d for d in active(db) if topics_match(topic, d.topic) and d.agent_id != agent_id]
+    # Judge outside the write transaction: it can take seconds, and hooks need the lock.
+    verdict = None
+    if judge and candidates:
+        verdict = judge_with_fallback(judge, topic, choice, reason, candidates)
+    pending = bool(verdict and verdict.conflict)
     db.execute("BEGIN IMMEDIATE")
     try:
-        matching = [d for d in active(db) if topics_match(topic, d.topic)]
-        mine = [d for d in matching if d.agent_id == agent_id]
-        others = [d for d in matching if d.agent_id != agent_id]
+        mine = [] if pending else [
+            d for d in active(db) if topics_match(topic, d.topic) and d.agent_id == agent_id]
         for d in mine:
             db.execute("UPDATE decisions SET status='superseded' WHERE id=?", (d.id,))
         cur = db.execute(
-            "INSERT INTO decisions (topic, choice, reason, agent_id, checkpoint, ts)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (topic, choice, reason, agent_id, checkpoint, time.time()),
+            "INSERT INTO decisions (topic, choice, reason, agent_id, checkpoint, status, ts,"
+            " conflict_with, verdict) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (topic, choice, reason, agent_id, checkpoint, "pending" if pending else "active",
+             time.time(), verdict.with_id if pending else None,
+             verdict.to_json() if verdict else None),
         )
-        new = _row(db.execute("SELECT * FROM decisions WHERE id=?", (cur.lastrowid,)).fetchone())
+        new = get(db, cur.lastrowid)
         db.execute("COMMIT")
     except BaseException:
         db.execute("ROLLBACK")
         raise
-    return RecordResult(new, mine, others)
+    return RecordResult(new, mine, candidates, verdict)
+
+
+def pending(db: sqlite3.Connection) -> list[Decision]:
+    return [_row(r) for r in db.execute(
+        f"SELECT {COLUMNS} FROM decisions WHERE status='pending' ORDER BY id")]
+
+
+def resolve(db: sqlite3.Connection, pending_id: int, keep_id: int) -> tuple[Decision, Decision]:
+    """Settle a pending conflict. keep_id is either the pending decision (it becomes active and
+    the one it clashed with is superseded) or the existing one (the pending one is rejected).
+    Returns (kept, dropped)."""
+    p = get(db, pending_id)
+    if p is None or p.status != "pending":
+        raise ValueError(f"#{pending_id} is not a pending decision")
+    if keep_id not in (p.id, p.conflict_with):
+        raise ValueError(f"keep must be #{p.id} or #{p.conflict_with}")
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        if keep_id == p.id:
+            db.execute("UPDATE decisions SET status='active' WHERE id=?", (p.id,))
+            db.execute("UPDATE decisions SET status='superseded' WHERE id=?", (p.conflict_with,))
+        else:
+            db.execute("UPDATE decisions SET status='rejected' WHERE id=?", (p.id,))
+        db.execute("COMMIT")
+    except BaseException:
+        db.execute("ROLLBACK")
+        raise
+    kept, dropped = get(db, keep_id), get(db, p.conflict_with if keep_id == p.id else p.id)
+    return kept, dropped
 
 
 def supersede(db: sqlite3.Connection, decision_id: int) -> bool:

@@ -1,14 +1,18 @@
 """Claude Code hook entry points. These must never break the agent: always exit 0."""
 
 import json
+import os
 import sys
 from typing import IO
 
 from agentgit import store
+from agentgit.judge import JUDGE_ENV  # set in the judge's own sessions, which we skip
 from agentgit.paths import store_path, worktree_root
 
 
 def post_tool_use(stdin: IO[str] = sys.stdin) -> None:
+    if os.environ.get(JUDGE_ENV):
+        return
     try:
         ev = json.load(stdin)
         path = store_path(ev["cwd"])
@@ -32,6 +36,8 @@ def post_tool_use(stdin: IO[str] = sys.stdin) -> None:
 
 def pre_tool_use(stdin: IO[str] = sys.stdin) -> None:
     """Checkpoint before irreversible calls. Never blocks: prints nothing to stdout."""
+    if os.environ.get(JUDGE_ENV):
+        return
     try:
         ev = json.load(stdin)
         path = store_path(ev["cwd"])

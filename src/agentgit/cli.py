@@ -21,8 +21,11 @@ CONFIG_TOML = """\
 # AgentGit settings (committed)
 version = 1
 
-[agents]
-harness = "claude-code"
+[judge]
+# Who decides whether two decisions conflict. "auto" uses Claude Code if installed, else
+# Codex, else a keyword heuristic. Runs headlessly on your existing login; no API key needed.
+backend = "auto"   # auto | claude | codex | heuristic
+model = ""         # optional, e.g. "haiku" for claude
 """
 
 
@@ -73,9 +76,9 @@ def _install_mcp(root: Path) -> bool:
     return True
 
 
-def _install_claude_md(root: Path) -> bool:
-    """Add (or refresh) the agentgit section of CLAUDE.md. Returns True if it changed."""
-    path = root / "CLAUDE.md"
+def _install_instructions(root: Path, filename: str) -> bool:
+    """Add (or refresh) the agentgit section of CLAUDE.md / AGENTS.md. True if it changed."""
+    path = root / filename
     text = path.read_text() if path.exists() else ""
     if CLAUDE_MD_START in text:
         head, rest = text.split(CLAUDE_MD_START, 1)
@@ -113,6 +116,53 @@ def _install_hooks(root: Path) -> bool:
     return changed
 
 
+CODEX_START = "# agentgit:start (managed by `agentgit init`)"
+CODEX_END = "# agentgit:end"
+
+
+def _codex_block() -> str:
+    if _portable():
+        mcp_cmd, mcp_args = "agentgit", ["mcp"]
+    else:
+        mcp_cmd, mcp_args = sys.executable, ["-m", "agentgit", "mcp"]
+    lines = [CODEX_START, "[mcp_servers.agentgit]", f"command = {json.dumps(mcp_cmd)}",
+             f"args = {json.dumps(mcp_args)}", ""]
+    for event, sub in HOOK_EVENTS.items():
+        lines += [f"[[hooks.{event}]]", 'matcher = "*"', f"[[hooks.{event}.hooks]]",
+                  'type = "command"', f"command = {json.dumps(_hook_command(sub))}", ""]
+    return "\n".join(lines + [CODEX_END]) + "\n"
+
+
+def _install_codex(root: Path) -> bool:
+    """Write the MCP server and hooks into .codex/config.toml. True if it changed.
+
+    Our block goes at the end of the file: TOML tables run until the next header, so a block
+    in the middle would capture the user's keys that follow it."""
+    path = root / ".codex" / "config.toml"
+    text = path.read_text() if path.exists() else ""
+    if CODEX_START in text:
+        head, rest = text.split(CODEX_START, 1)
+        tail = rest.split(CODEX_END, 1)[1].lstrip("\n") if CODEX_END in rest else ""
+        text_wo = head.rstrip("\n") + ("\n" + tail if tail else "")
+    else:
+        text_wo = text
+    new = (text_wo.rstrip("\n") + "\n\n" if text_wo.strip() else "") + _codex_block()
+    if new == text:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(new)
+    return True
+
+
+def _harnesses(choice: str, root: Path) -> list[str]:
+    if choice == "both":
+        return ["claude", "codex"]
+    if choice in ("claude", "codex"):
+        return [choice]
+    found = [h for h in ("claude", "codex") if shutil.which(h) or (root / f".{h}").exists()]
+    return found or ["claude"]
+
+
 def _ensure_gitignore(root: Path) -> None:
     gi = root / ".gitignore"
     lines = gi.read_text().splitlines() if gi.exists() else []
@@ -138,8 +188,11 @@ def _fmt_ts(ts: float) -> str:
 
 
 @app.command()
-def init() -> None:
-    """Create .agentgit/ in the main repo and install the Claude Code hook."""
+def init(
+    harness: str = typer.Option("auto", "--harness",
+                                help="claude | codex | both | auto (whichever is installed)."),
+) -> None:
+    """Create .agentgit/ in the main repo and wire up Claude Code and/or Codex."""
     try:
         root = repo_root()
     except Exception:
@@ -153,12 +206,20 @@ def init() -> None:
     store.init_store(store_path())
     _ensure_gitignore(root)
     typer.echo(f"initialised {d}")
-    typer.echo("installed hooks in .claude/settings.json" if _install_hooks(root)
-               else "hooks already installed")
-    typer.echo("registered MCP server in .mcp.json" if _install_mcp(root)
-               else "MCP server already registered")
-    typer.echo("added agentgit section to CLAUDE.md" if _install_claude_md(root)
-               else "CLAUDE.md already up to date")
+    targets = _harnesses(harness, root)
+    if "claude" in targets:
+        typer.echo("installed hooks in .claude/settings.json" if _install_hooks(root)
+                   else "hooks already installed")
+        typer.echo("registered MCP server in .mcp.json" if _install_mcp(root)
+                   else "MCP server already registered")
+        typer.echo("added agentgit section to CLAUDE.md" if _install_instructions(root, "CLAUDE.md")
+                   else "CLAUDE.md already up to date")
+    if "codex" in targets:
+        typer.echo("wrote MCP server and hooks to .codex/config.toml" if _install_codex(root)
+                   else ".codex/config.toml already up to date")
+        typer.echo("added agentgit section to AGENTS.md" if _install_instructions(root, "AGENTS.md")
+                   else "AGENTS.md already up to date")
+        typer.echo("codex: trust this project and approve the hooks (/hooks) on first run")
 
 
 @app.command()
@@ -193,7 +254,7 @@ def log(
             raise typer.Exit(1)
         steps = store.walk(db, row[0])
     else:
-        steps = (store.Step(*r) for r in db.execute("SELECT * FROM steps ORDER BY ts DESC"))
+        steps = (store.Step(*r) for r in db.execute(f"SELECT {store.STEP_COLUMNS} FROM steps ORDER BY ts DESC"))
     shown = 0
     for s in steps:
         if tool and s.tool != tool:
@@ -244,7 +305,8 @@ def decide(
     reason: str = typer.Option(None, "--reason", "-r"),
     agent: str = typer.Option("developer", "--as", help="Who is deciding."),
 ) -> None:
-    """Record a decision by hand (agents use the MCP tool instead)."""
+    """Record a decision by hand (agents use the MCP tool instead). The developer's word is
+    final, so this is never held for review; conflicts are only reported."""
     db = _open()
     result = decisions.record(db, topic, choice, reason, agent)
     decisions.export(db, agentgit_dir() / "decisions")
@@ -253,6 +315,43 @@ def decide(
         typer.echo(f"superseded {d.summary()}")
     for d in result.conflicts:
         typer.echo(f"warning: possible conflict with {d.summary()}", err=True)
+
+
+@app.command()
+def conflicts() -> None:
+    """List decisions held for review, with the judge's verdict."""
+    db = _open()
+    held = decisions.pending(db)
+    if not held:
+        typer.echo("no pending conflicts")
+    for d in held:
+        other = decisions.get(db, d.conflict_with) if d.conflict_with else None
+        v = json.loads(d.verdict) if d.verdict else {}
+        typer.echo(f"#{d.id} {d.topic}: {d.choice} ({d.agent_id})")
+        typer.echo(f"  conflicts with #{other.id} {other.topic}: {other.choice} ({other.agent_id})"
+                   if other else "  conflicts with an unknown decision")
+        if v:
+            typer.echo(f"  judge {v.get('backend')}: severity {v.get('severity')}, "
+                       f"confidence {v.get('confidence', 0):.2f}")
+            typer.echo(f"  {v.get('recommendation')}")
+            typer.echo(f"  why: {v.get('rationale')}")
+        typer.echo(f"  resolve: agentgit resolve {d.id} --keep {d.conflict_with}   (or --keep {d.id})")
+
+
+@app.command()
+def resolve(
+    decision_id: int,
+    keep: int = typer.Option(..., "--keep", help="Id of the decision to keep."),
+) -> None:
+    """Settle a pending conflict by choosing which decision stands."""
+    db = _open()
+    try:
+        kept, dropped = decisions.resolve(db, decision_id, keep)
+    except ValueError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(1)
+    decisions.export(db, agentgit_dir() / "decisions")
+    typer.echo(f"kept {kept.short()}; {dropped.short()} is now {dropped.status}")
 
 
 @app.command("supersede")

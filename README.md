@@ -30,9 +30,38 @@ Then, inside any git repository:
 agentgit init
 ```
 
-`init` creates `.agentgit/`, installs the PostToolUse hook in `.claude/settings.json`, registers
-the MCP server in `.mcp.json`, and adds an AgentGit section to `CLAUDE.md`. Start (or restart)
-Claude Code in the repo to pick them up.
+`init` creates `.agentgit/` and wires up whichever agent CLIs are installed
+(`--harness claude|codex|both` to choose):
+
+- **Claude Code:** hooks in `.claude/settings.json`, MCP server in `.mcp.json`, a section in
+  `CLAUDE.md`. Restart Claude Code in the repo to pick them up.
+- **Codex:** MCP server and hooks in `.codex/config.toml`, a section in `AGENTS.md`. Codex only
+  loads project config for trusted projects, and asks you to approve new hooks (`/hooks`).
+
+## Conflict judge
+
+When an agent records a decision whose topic matches another agent's, a judge decides whether
+they really conflict (Postgres vs MongoDB: yes; Postgres plus a Redis cache: no). A confirmed
+conflict is held as **pending**, and the agent is told not to build on it until you settle it:
+
+```bash
+agentgit conflicts                 # pending decisions, the judge's verdict and rationale
+agentgit resolve 4 --keep 3        # keep #3; #4 is rejected (or --keep 4 to replace #3)
+```
+
+The judge runs your own agent CLI headlessly (`claude -p` or `codex exec`) on your existing
+login, so there is no API key or `.env` to set up. It runs in a fresh, tool-less session that
+sees only the decisions, not the requesting agent's conversation, so the agent that wants the
+change is not the one judging it. Configure it in `.agentgit/config.toml`:
+
+```toml
+[judge]
+backend = "auto"   # auto (claude, else codex, else heuristic) | claude | codex | heuristic
+model = ""         # e.g. "haiku"
+```
+
+`AGENTGIT_JUDGE_BACKEND` overrides the file. If the CLI fails, the keyword heuristic takes over
+so agents are never blocked.
 
 ## Commands
 
@@ -46,6 +75,8 @@ Claude Code in the repo to pick them up.
 | `agentgit supersede <id>` | Retire a decision |
 | `agentgit checkpoint <label>` | Name the current step of an agent |
 | `agentgit checkpoints [--no-auto]` | List checkpoints, newest first |
+| `agentgit conflicts` | Decisions held for review |
+| `agentgit resolve <id> --keep <id>` | Settle a conflict |
 
 Every tool call is tagged `pure`, `reversible` (file edits git can undo) or `irreversible`.
 Read-only shell commands (`ls`, `grep`, `git status`, ...) count as pure. Before any irreversible
@@ -57,14 +88,18 @@ before the step that can't be undone.
 - [x] Phase 1: recorder, shared store, CLI
 - [x] Phase 2: decision layer and MCP server
 - [x] Automatic checkpoints before irreversible tool calls
-- [ ] Phase 3: judge for semantic conflict detection and resolution
+- [x] Phase 3: judge (Claude Code / Codex / heuristic), pending decisions, `resolve`
+- [x] Codex support (hooks, MCP, AGENTS.md)
+- [ ] Judge evaluation on a labelled set of conflict / non-conflict pairs
 - [ ] Phase 4: rewind and summary-seeded forks
 - [ ] Phase 4: branch-and-compare (`fork --n 3`: parallel agents try different approaches from
       one checkpoint; tests or the judge pick a winner)
 - [ ] Evaluation: measured steps and tokens saved by forks sharing a prefix, from the store
 
-Current limitations: one agent per worktree; topic matching is a keyword/synonym heuristic until
-the judge lands; Bash classification is an allowlist, so unknown commands count as irreversible.
+Current limitations: one agent per worktree; the judge only sees decisions whose topics match by
+keyword/synonym, so differently-worded topics can slip past it; Bash classification is an
+allowlist, so unknown commands count as irreversible; the Codex integration follows the Codex
+docs and is tested against a stand-in binary, not a live Codex install yet.
 
 ## Related work
 
