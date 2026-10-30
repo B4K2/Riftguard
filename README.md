@@ -1,6 +1,9 @@
 <div align="center">
 
-# Riftguard
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+  <img src="assets/logo-light.svg" alt="Riftguard" width="300">
+</picture>
 
 **Keep parallel AI coding agents from silently contradicting each other.**
 
