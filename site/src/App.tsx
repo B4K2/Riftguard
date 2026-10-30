@@ -1,14 +1,18 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Lenis from 'lenis'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
-import Scene, { scroll } from './components/Scene'
+import { scroll } from './components/scroll'
 import SplitText from './components/SplitText'
 import DecryptedText from './components/DecryptedText'
 import SpotlightCard from './components/SpotlightCard'
 import Terminal from './components/Terminal'
+import MetallicPaint from './components/MetallicPaint'
 
 gsap.registerPlugin(ScrollTrigger)
+
+// three.js is most of the bundle; load it after first paint so the hero shows immediately.
+const Scene = lazy(() => import('./components/Scene'))
 
 const REPO = 'https://github.com/B4K2/Riftguard'
 
@@ -54,7 +58,7 @@ export default function App() {
 
   useLayoutEffect(() => {
     const ctx = gsap.context(() => {
-      gsap.from('.hero .fade', { y: 24, opacity: 0, duration: 1, stagger: 0.12, delay: 0.5, ease: 'power3.out' })
+      gsap.from('.hero .fade', { y: 24, opacity: 0, duration: 1, stagger: 0.12, delay: 0.2, ease: 'power3.out' })
 
       gsap.utils.toArray<HTMLElement>('.reveal').forEach((el) =>
         gsap.from(el, { y: 60, opacity: 0, duration: 1, ease: 'power3.out', scrollTrigger: { trigger: el, start: 'top 85%' } }),
@@ -90,7 +94,7 @@ export default function App() {
 
   return (
     <div ref={root}>
-      <Scene />
+      <Suspense fallback={null}><Scene /></Suspense>
       <div className="grain" />
 
       <nav className="nav">
@@ -105,12 +109,10 @@ export default function App() {
 
       <header className="hero" id="top">
         <div className="hero-inner">
-          <p className="eyebrow fade">v0.2.0 · Claude Code & Codex</p>
+          <div className="wordmark" aria-label="riftguard">
+            <MetallicPaint text="riftguard" fontFamily="Inter, system-ui, sans-serif" fontWeight={600} scale={0.9} color="#ff4d2e" intro={false} />
+          </div>
           <SplitText as="h1" text="Keep parallel agents from silently contradicting each other." className="hero-title" delay={0.2} />
-          <p className="lede fade">
-            Riftguard gives your coding agents a shared memory of architectural decisions and an independent judge,
-            so the second agent is told <em>before</em> it writes any code.
-          </p>
           <div className="hero-cta fade">
             <CopyCmd cmd="uv tool install riftguard" />
             <a className="btn" href={REPO} target="_blank" rel="noreferrer">View on GitHub</a>

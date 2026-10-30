@@ -2,8 +2,7 @@ import { useMemo, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 
-// Scroll progress (0..1) is written here by App; the scene reads it every frame.
-export const scroll = { progress: 0 }
+import { scroll } from './scroll'
 
 function Dust({ count = 1800 }) {
   const ref = useRef<THREE.Points>(null!)
@@ -98,9 +97,9 @@ function Core() {
 function Rig() {
   useFrame(({ camera, pointer }) => {
     const p = scroll.progress
-    // Hero sits right of the text; mid-page the camera pulls back; at the end it centers.
-    const targetX = THREE.MathUtils.lerp(-2.2, 0, Math.min(p * 3, 1)) + pointer.x * 0.4
-    const targetZ = 9 + Math.sin(p * Math.PI) * 4
+    // Hero is centered, so the core starts pushed back behind the text; mid-page the camera pulls back further.
+    const targetX = pointer.x * 0.4
+    const targetZ = THREE.MathUtils.lerp(13, 9, Math.min(p * 3, 1)) + Math.sin(p * Math.PI) * 4
     camera.position.x += (targetX - camera.position.x) * 0.05
     camera.position.y += (pointer.y * 0.4 + 0.6 - camera.position.y) * 0.05
     camera.position.z += (targetZ - camera.position.z) * 0.05
@@ -112,15 +111,16 @@ function Rig() {
 export default function Scene() {
   return (
     <div className="scene" aria-hidden>
-      <Canvas camera={{ position: [-2.2, 0.6, 9], fov: 45 }} dpr={[1, 2]} gl={{ antialias: true }}>
+      <Canvas eventSource={document.getElementById('root')!} eventPrefix="client" camera={{ position: [0, 0.6, 13], fov: 45 }} dpr={[1, 2]} gl={{ antialias: true }}>
         <color attach="background" args={['#050505']} />
         <fog attach="fog" args={['#050505', 8, 26]} />
         <ambientLight intensity={0.4} />
         <directionalLight position={[5, 5, 5]} intensity={2} />
         <pointLight position={[-4, -2, 3]} intensity={20} color="#ffffff" />
+        <pointLight position={[3, 1, -2]} intensity={14} color="#ff4d2e" />
         <Core />
         <Agent phase={0} radius={3.2} tilt={0.2} shade="#ffffff" />
-        <Agent phase={Math.PI} radius={3.2} tilt={-0.2} shade="#8a8a8a" />
+        <Agent phase={Math.PI} radius={3.2} tilt={-0.2} shade="#ff4d2e" />
         <Agent phase={Math.PI / 2} radius={4.1} tilt={0.5} shade="#cfcfcf" />
         <Dust />
         <Rig />
