@@ -7,10 +7,13 @@
 
 **Keep parallel AI coding agents from silently contradicting each other.**
 
+**[riftguard.vercel.app](https://riftguard.vercel.app/)**
+
 [![CI](https://github.com/B4K2/Riftguard/actions/workflows/ci.yml/badge.svg)](https://github.com/B4K2/Riftguard/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/riftguard.svg?cacheSeconds=3600)](https://pypi.org/project/riftguard/)
 [![Python](https://img.shields.io/pypi/pyversions/riftguard.svg?cacheSeconds=3600)](https://pypi.org/project/riftguard/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Website](https://img.shields.io/badge/website-riftguard.vercel.app-ff4d2e.svg)](https://riftguard.vercel.app/)
 
 Works with **Claude Code** and **Codex** · No API keys · Sits beside git, not instead of it
 
